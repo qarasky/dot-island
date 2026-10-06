@@ -38,7 +38,7 @@ data class DotIslandSettings(
     val swipeHoldUpAction = "DismissAll"
     val swipeDownAction = "None"
     val pillSwipeUpAction = "DismissCurrent"
-    val pillSwipeDownAction = "Expand"
+    val pillSwipeDownAction = "None"
     val pillSwipeLeftAction = "PreviousNotification"
     val pillSwipeRightAction = "NextNotification"
 

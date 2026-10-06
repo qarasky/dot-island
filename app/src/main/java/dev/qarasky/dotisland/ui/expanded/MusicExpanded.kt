@@ -50,14 +50,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.qarasky.dotisland.data.DotIslandCommand
@@ -70,9 +68,7 @@ import dev.qarasky.dotisland.ui.SquircleShape
 import dev.qarasky.dotisland.ui.DotMatrixActivity
 import androidx.compose.ui.text.font.FontFamily
 import dev.qarasky.dotisland.util.runCatchingLogged
-import dev.qarasky.dotisland.util.calculateCutoutAvoidingTop
 import dev.qarasky.dotisland.util.isSpotifyPlayingState
-import kotlin.math.ceil
 
 /** Black, compact media surface; camera padding is owned by the expanded container. */
 @Composable
@@ -132,7 +128,7 @@ fun MusicExpanded(
             .background(Color.Black)
             .padding(MUSIC_CONTENT_INSET)
     ) {
-        MusicHeader(
+        CutoutAwareActivityHeader(
             modifier = Modifier.fillMaxWidth(),
             cameraBounds = cameraBounds,
             screenWidthPx = context.resources.displayMetrics.widthPixels,
@@ -212,45 +208,6 @@ fun MusicExpanded(
                     openAudioOutput(context)
                 }
             }
-        }
-    }
-}
-
-/** Position side artwork normally; move text only where it intersects the camera. */
-@Composable
-private fun MusicHeader(
-    modifier: Modifier,
-    cameraBounds: List<Rect>,
-    screenWidthPx: Int,
-    screenTop: Dp,
-    content: @Composable () -> Unit
-) {
-    Layout(content = content, modifier = modifier) { measurables, constraints ->
-        val gap = 18.dp.roundToPx()
-        val loose = constraints.copy(minWidth = 0, minHeight = 0)
-        val art = measurables[0].measure(loose)
-        val bars = measurables[2].measure(loose)
-        val textWidth = (constraints.maxWidth - art.width - bars.width - gap * 2).coerceAtLeast(0)
-        val text = measurables[1].measure(loose.copy(minWidth = textWidth, maxWidth = textWidth))
-        val naturalHeight = maxOf(art.height, text.height, bars.height)
-        val headerScreenLeft = (screenWidthPx - constraints.maxWidth) / 2f
-        val headerScreenTop = screenTop.toPx()
-        val textX = art.width + gap
-        val barsX = constraints.maxWidth - bars.width
-        fun topFor(x: Int, width: Int, height: Int): Int {
-            val top = headerScreenTop + (naturalHeight - height) / 2f
-            return ceil(calculateCutoutAvoidingTop(
-                headerScreenLeft + x, width.toFloat(), top, height.toFloat(), cameraBounds
-            ) - headerScreenTop).toInt().coerceAtLeast(0)
-        }
-        val artTop = topFor(0, art.width, art.height)
-        val textTop = topFor(textX, text.width, text.height)
-        val barsTop = topFor(barsX, bars.width, bars.height)
-        val height = maxOf(artTop + art.height, textTop + text.height, barsTop + bars.height)
-        layout(constraints.maxWidth, constraints.constrainHeight(height)) {
-            art.place(0, artTop)
-            text.place(textX, textTop)
-            bars.place(barsX, barsTop)
         }
     }
 }

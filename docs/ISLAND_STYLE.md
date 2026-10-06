@@ -7,25 +7,28 @@ No added red accent, proprietary fonts or branded assets.
 ## Personal build — current scope
 
 This is exclusively for the connected A069 on Android 16/API 36, not a public
-product. The app has one monochrome control screen, one persisted enable flag,
+product. The app has one monochrome control screen, persisted power/source opt-ins,
 a live compact preview and contextual permission-repair links. No settings tabs,
 history/database, shortcuts/recent-app access, backup/import/export, update feeds,
 network requests, Shizuku integration, OEM selectors or color/geometry editors.
-The fixed code profile is 112 × 34dp, centred, 12dp from the top. Runtime density,
+The baseline code profile is 112 × 34dp, centred, 12dp from the top. Live Update
+content extends only the necessary compact edge around a protected camera gap. Runtime density,
 cutout and window-origin conversion are retained; fixed profile is not fixed pixels.
 Lock-screen and landscape presentation remain disabled, as on this phone before
 the redesign. Device access/background checks and reboot recovery remain.
 
-Only Spotify sessions, native calls from Google Dialer/Telecom, and Dodo order
-notifications (`ru.dodopizza.app`) enter the island. Notification ingestion never
-cancels system notifications or replays their sounds. Call/delivery/music priority
-is explicit, with at most one representation per activity type. No other activity
-modes or regular notification cards remain. Original artwork/icons retain color.
+Spotify sessions, native calls from Google Dialer/Telecom, allowed Android Live
+Updates and the separate custom publishing API enter the island. Notification
+ingestion never cancels system notifications or replays their sounds. Call/Live
+Update/music priority is explicit, with one representation per native activity
+type and one per publisher. Regular notification cards remain excluded. Music
+artwork retains colour; Live Update notification glyphs are monochrome.
 
-Dodo filters common English/Russian order states and promotions, displays source
-text and only source-provided ETA/progress, and is marked **UNVERIFIED** in the
-app until a real delivery has been checked. This is not a claim of tested Dodo
-integration. There is no invented 65% progress or estimated delivery time.
+Dodo is the first verified Live Update source and retains a compatibility parser
+for common English/Russian order states and promotions. Source names/icons are
+otherwise generic. ETA/progress always comes from the notification. The single
+dot row uses opacity and restrained pulsing, including unknown-progress feedback;
+there is no invented percentage or ETA. See `LIVE_UPDATES.md` and `DODO_NOTIFICATIONS.md`.
 
 True idle has no expanded launcher/card. Its standby matrix does a 600ms diagonal
 wink after 9 seconds of rest; no frame clock runs during the delay. Lifecycle

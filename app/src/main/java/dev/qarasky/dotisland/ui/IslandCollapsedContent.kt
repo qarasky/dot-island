@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
@@ -29,7 +30,7 @@ import androidx.compose.ui.unit.sp
 import dev.qarasky.dotisland.data.DotIslandSettings
 import dev.qarasky.dotisland.model.IslandMode
 import dev.qarasky.dotisland.model.IslandNotification
-import dev.qarasky.dotisland.util.LiveActivityParser
+import dev.qarasky.dotisland.util.PersonalActivityPolicy
 import dev.qarasky.dotisland.ui.expanded.publishedMicroStatus
 import kotlinx.coroutines.delay
 
@@ -55,7 +56,7 @@ fun IslandCollapsedContent(mode: IslandMode, notification: IslandNotification?, 
                 IslandMode.Music -> DotMatrixActivity(notification?.mediaIsPlaying == true, Modifier.size(19.dp, 17.dp))
                 IslandMode.IncomingCall -> if (notification?.isCallRinging == true) MicroStatus("CALL")
                     else CallTimer(notification?.timeMillis ?: System.currentTimeMillis(), Color.White)
-                IslandMode.LiveActivity -> MicroStatus(LiveActivityParser.eta(notification?.title.orEmpty(), notification?.text.orEmpty()) ?: "ORDER")
+                IslandMode.LiveActivity -> MicroStatus(liveUpdateCompactStatus(notification))
                 IslandMode.Published -> MicroStatus(publishedMicroStatus(notification))
             }
         }
@@ -63,18 +64,26 @@ fun IslandCollapsedContent(mode: IslandMode, notification: IslandNotification?, 
 }
 
 @Composable internal fun ActivityGlyph(notification: IslandNotification?, modifier: Modifier = Modifier) {
-    val artwork = notification?.largeIcon ?: notification?.icon
-    if (artwork != null) Image(artwork.asImageBitmap(), null, modifier.clip(SquircleShape))
+    val isLiveUpdate = notification?.mode == IslandMode.LiveActivity
+    val isDodo = isLiveUpdate && notification?.packageName == PersonalActivityPolicy.DODO
+    val artwork = when {
+        isDodo -> null
+        isLiveUpdate -> notification?.icon
+        else -> notification?.largeIcon ?: notification?.icon
+    }
+    if (artwork != null) Image(artwork.asImageBitmap(), null, modifier.clip(SquircleShape),
+        colorFilter = if (isLiveUpdate) ColorFilter.tint(Color.White) else null)
     else Icon(when (notification?.mode) {
         IslandMode.IncomingCall -> Icons.Rounded.Call
-        IslandMode.LiveActivity -> Icons.Rounded.LocalPizza
+        IslandMode.LiveActivity -> if (isDodo) Icons.Rounded.LocalPizza else Icons.Rounded.Bolt
         IslandMode.Published -> Icons.Rounded.Bolt
         else -> Icons.Rounded.MusicNote
     }, null, modifier, tint = Color.White)
 }
 
 @Composable private fun MicroStatus(text: String) {
-    Text(text, color = Color(0xFFB8B8BD), fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+    Text(text, color = Color(0xFFB8B8BD), fontFamily = FontFamily.Monospace, fontSize = 9.sp,
+        letterSpacing = 0.sp, maxLines = 1, softWrap = false)
 }
 
 @Composable internal fun CallTimer(postTimeMillis: Long, color: Color) {

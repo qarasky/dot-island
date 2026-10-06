@@ -24,6 +24,18 @@ class ExpandedContentSafeAreaTest {
         assertEquals(116.5f, calculateCutoutAvoidingTop(324f, 600f, 84f, 118f, listOf(camera)), 0.001f)
     }
 
+    @Test fun dodoTitleKeepsEightDpOfBreathingRoomBelowCamera() {
+        assertEquals(137.5f, calculateCutoutAvoidingTop(
+            250f, 600f, 88f, 118f, listOf(camera), clearancePx = 8f * 2.75f
+        ), 0.001f)
+    }
+
+    @Test fun dodoSideGlyphKeepsItsNormalInsetWithLargerCameraClearance() {
+        assertEquals(88f, calculateCutoutAvoidingTop(
+            99f, 88f, 88f, 88f, listOf(camera), clearancePx = 8f * 2.75f
+        ), 0.001f)
+    }
+
     @Test fun titleAlreadyBelowCameraDoesNotMove() {
         assertEquals(130f, calculateCutoutAvoidingTop(324f, 600f, 130f, 118f, listOf(camera)), 0f)
     }

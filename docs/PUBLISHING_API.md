@@ -1,7 +1,20 @@
 # Dot Island — publishing API
 
 Any app on the device can put an activity in the island. Dot Island also watches
-Spotify, Dodo and phone calls on its own; this API is for everything else.
+Spotify, allowed Android Live Updates and phone calls on its own; this API is for everything else.
+
+For the generic native notification contract, see [LIVE_UPDATES.md](LIVE_UPDATES.md).
+For the actual Dodo notification contract and replay fixture, see
+[`DODO_NOTIFICATIONS.md`](DODO_NOTIFICATIONS.md). Publishing order-like text here
+creates a generic `Published` card, not the Dodo order card.
+
+> **Current implementation caveat:** the broadcast receiver uses
+> `Binder.getCallingUid()` inside `onReceive`, which is not reliable broadcast
+> sender authentication. The examples below have not been verified end-to-end;
+> do not treat the identity/security claims below as established guarantees.
+> Sender authentication and dismiss ownership checks need correction before
+> relying on this API. Termux/Tasker also run under their own UIDs, not the adb
+> shell UID.
 
 ## Quick start (no code)
 

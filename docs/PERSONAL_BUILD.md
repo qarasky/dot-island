@@ -8,7 +8,7 @@ surface, migration system, updater, network client, history or app launcher.
 `DotIslandHomeScreen.kt` is the entire app screen: enable switch, live compact
 preview, source availability and contextual Android permission links. Preview
 uses the compact renderer without creating fake activities or issuing playback
-commands. Only the enable flag is persisted. Geometry and behavior are code
+commands. Power, publisher state and the Live Update source allowlist are persisted. Geometry and behavior are code
 constants in `DotIslandSettings.kt`; dimensions remain density-independent.
 
 Black/white/grey surfaces, fine borders, squircle artwork, monospaced microtype,
@@ -22,20 +22,24 @@ restoration. Spotify session discovery independently restricts package identity.
 
 - Spotify: `com.spotify.music`, actual playing/paused media session.
 - Phone: `com.google.android.dialer` or `com.android.server.telecom`, call category.
-- Dodo: `ru.dodopizza.app`, conservative English/Russian order-state detection,
-  excluding common promotional text. Real delivery integration remains unverified.
-- Group summaries and all other notifications are ignored, not cancelled.
+- Live Updates: explicitly allowed source packages, ongoing Android ProgressStyle
+  or promoted-ongoing notifications. Dodo (`ru.dodopizza.app`) is allowed by default
+  and has conservative English/Russian order parsing, excluding promotions.
+- Group summaries and ordinary notifications are ignored, not cancelled.
+- Published activities retain the separate broadcast path and publisher allowlist.
 
 The listener never suppresses the system shade, replays notification sounds,
 records history, invokes networking or sends other apps' media commands. User
 actions can still invoke the original call answer/end PendingIntent. Dismissal
-only removes an island representation. Calls have priority over delivery and
+only removes an island representation. Calls have priority over Live Updates and
 music; at most one representation per type is retained.
 
 `LiveActivityParser.kt` does not infer order completion percentage from elapsed
-time. No progress bar appears without a valid source progress maximum; no ETA
-appears without a minutes value in source text. Use an actual order notification
-to validate its wording, channel and lifecycle before claiming Dodo support.
+time. Progress uses dot opacity; indeterminate progress pulses without a fake
+percentage. No ETA appears without a minutes value in source text. A real Dodo
+order was observed on 6 October 2026; its 100/100 progress during active delivery
+does not mean the courier has arrived. See `LIVE_UPDATES.md` for the generic
+notification contract/replay and `DODO_NOTIFICATIONS.md` for observed Dodo fields.
 
 ## Idle and foreground behavior
 

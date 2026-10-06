@@ -63,7 +63,7 @@ fun IslandExpandedContent(notifications: List<IslandNotification>, selectedIndex
                     when (item.mode) {
                         IslandMode.Music -> MusicExpanded(item, settings, onCollapse, cameraBounds, cardScreenTop)
                         IslandMode.IncomingCall -> IncomingCallExpanded(item, 20.dp, onCollapse, settings)
-                        IslandMode.LiveActivity -> LiveActivityExpanded(item, 20.dp)
+                        IslandMode.LiveActivity -> LiveUpdateExpanded(item, cameraBounds, cardScreenTop)
                         IslandMode.Published -> PublishedExpanded(item, 20.dp)
                         IslandMode.Empty -> Unit
                     }

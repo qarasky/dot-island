@@ -1,7 +1,7 @@
 <h1 align="center">Dot Island</h1>
 
 <p align="center">
-  A personal Android overlay that turns <strong>Spotify</strong>, <strong>Dodo Pizza orders</strong> and
+  A personal Android overlay that turns <strong>Spotify</strong>, <strong>Android Live Updates</strong> and
   <strong>phone calls</strong> — plus anything you publish through its API — into one
   monochrome island around the camera.
 </p>
@@ -43,7 +43,7 @@ The island only ever shows ongoing activities:
 | Source | Collapsed | Expanded |
 | --- | --- | --- |
 | **Spotify** | Artwork + dot-matrix activity | Squircle artwork, title/artist, seek bar with remaining-time countdown, prev/play/next, audio-output shortcut |
-| **Dodo Pizza** (`ru.dodopizza.app`) | `ORDER` + ETA when the notification states one | Order text, source ETA/progress only — nothing invented |
+| **Live Updates** (allowed sources; Dodo supported) | Source glyph + ETA, `%` or `LIVE` | Source name/status, supplied details and dotted progress; no invented ETA |
 | **Calls** | `CALL` / live timer | Answer / decline |
 | **Published (API)** | Publisher icon + `%` or `API` | Title, text, optional progress bar |
 | **Idle** | Standby dot matrix + `IDLE` | — (idle never expands; the dots do a brief wink every ~9 s) |
@@ -51,14 +51,23 @@ The island only ever shows ongoing activities:
 Monochrome throughout: black surfaces, white glyphs, system monospace for times,
 readable sans for names. Original artwork keeps its colors.
 
+Live Updates are opt-in by source package. Dodo is enabled by default; other apps
+must provide ongoing Android ProgressStyle/promoted notifications. Normal alerts
+stay in the shade. Contract and replay: [`docs/LIVE_UPDATES.md`](docs/LIVE_UPDATES.md).
+
 ## Gestures
 
 | Gesture | Action |
 | --- | --- |
 | Single tap | Open the source app |
 | Hold | Expand while the finger is down (light 12 ms haptic) |
+| Tap companion circle | Switch the main activity without expanding or opening its app |
+| Hold companion circle | Switch to that activity and expand |
 | Outside tap | Collapse |
 | Swipe up / hold + swipe up | Dismiss current / dismiss all |
+
+The island cannot be dragged or repositioned. Swipes issue commands without
+moving the pill; expansion is touch-and-hold only.
 
 ## Publishing API
 
@@ -71,9 +80,9 @@ adb shell am broadcast -a dev.qarasky.dotisland.action.PUBLISH \
   --es text "12 tests, 0 failures"
 ```
 
-Caller identity comes from `Binder.getCallingUid()`, checked against an
-allowlist in the app — a publisher can't impersonate another app.
-`com.android.shell` is allowed by default. Activities expire on their own
+The publishing receiver's sender authentication still needs correction; these
+broadcast examples are not yet verified end-to-end. `com.android.shell` is
+allowlisted by default. Activities expire on their own
 (default 30 min) so a crashed publisher can't leave a permanent entry.
 Full contract: [`docs/PUBLISHING_API.md`](docs/PUBLISHING_API.md).
 
@@ -84,7 +93,7 @@ Full contract: [`docs/PUBLISHING_API.md`](docs/PUBLISHING_API.md).
 | Permission | Why |
 | --- | --- |
 | Accessibility service | Draw the overlay and detect the foreground app |
-| Notification listener | Read Spotify / Dodo / call notifications (never cancels or re-sounds them) |
+| Notification listener | Read Spotify, allowed Live Updates and calls (never cancels or re-sounds them) |
 | `FOREGROUND_SERVICE` + `RECEIVE_BOOT_COMPLETED` | Keep the island alive, restore after reboot |
 | Battery-optimization exemption | Same reason |
 | `VIBRATE` | The 12 ms expansion pulse |
@@ -116,6 +125,8 @@ lint hits a tool bug, so CI-style runs use `--no-parallel --max-workers=1`):
 
 - [`docs/PERSONAL_BUILD.md`](docs/PERSONAL_BUILD.md) — scope, policy, verification log
 - [`docs/PUBLISHING_API.md`](docs/PUBLISHING_API.md) — broadcast contract, rules
+- [`docs/DODO_NOTIFICATIONS.md`](docs/DODO_NOTIFICATIONS.md) — observed Dodo notification fields and safe replay instructions
+- [`docs/LIVE_UPDATES.md`](docs/LIVE_UPDATES.md) — generic Android Live Update sources, opt-in rules and emulator replay
 - [`docs/ISLAND_STYLE.md`](docs/ISLAND_STYLE.md) — motion, geometry, 120 Hz notes
 - [`CHANGELOG.md`](CHANGELOG.md) — history (pre-rebrand entries keep the old name)
 

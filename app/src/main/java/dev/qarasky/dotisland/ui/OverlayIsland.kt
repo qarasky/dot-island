@@ -8,9 +8,12 @@ package dev.qarasky.dotisland.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.qarasky.dotisland.model.IslandNotification
+import dev.qarasky.dotisland.util.collapsedCutoutSettings
 
 @Composable
 fun ThemedOverlayIsland(viewModel: IslandViewModel, statusBarHeight: Float,
@@ -22,8 +25,13 @@ fun ThemedOverlayIsland(viewModel: IslandViewModel, statusBarHeight: Float,
     val notifications by viewModel.visibleNotifications.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
     val hasSourceActivity by viewModel.hasSourceActivity.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
     val index by viewModel.selectedIndex.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
+    val context = LocalContext.current
+    val active = notifications.getOrNull(index.coerceIn(0, (notifications.size - 1).coerceAtLeast(0)))
+    val compactSettings = remember(context, settings, active) {
+        collapsedCutoutSettings(context, settings, active)
+    }
     DotIslandTheme {
-        IslandOverlayView(settings, expanded && isFullWidth, notifications, index,
+        IslandOverlayView(compactSettings, expanded && isFullWidth, notifications, index,
             onPageSelected = viewModel::setSelectedNotificationIndex, onOpenNotification = onOpenNotification,
             onToggleExpanded = viewModel::toggleExpanded, onDismissNotification = viewModel::dismissCurrentNotification,
             onDismissAllNotifications = viewModel::dismissAllNotifications, onOpenFloatingWindow = onOpenFloatingWindow,

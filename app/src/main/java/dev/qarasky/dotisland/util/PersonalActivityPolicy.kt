@@ -15,10 +15,16 @@ object PersonalActivityPolicy {
     const val TELECOM = "com.android.server.telecom"
 
     fun mode(packageName: String, category: String?, isMedia: Boolean, ongoing: Boolean,
-        title: String, text: String, progressMax: Int = 0, groupSummary: Boolean = false): IslandMode = when {
+        title: String, text: String, progressMax: Int = 0, groupSummary: Boolean = false,
+        allowedLiveUpdatePackages: Set<String> = setOf(DODO), progressStyle: Boolean = false,
+        promotedOngoing: Boolean = false): IslandMode = when {
         groupSummary -> IslandMode.Empty
         packageName == SPOTIFY && isMedia -> IslandMode.Music
         packageName in setOf(DIALER, TELECOM) && category == "call" -> IslandMode.IncomingCall
+        isMedia || category == "call" -> IslandMode.Empty
+        packageName !in allowedLiveUpdatePackages -> IslandMode.Empty
+        packageName == DODO && LiveActivityParser.isPromotional(title, text) -> IslandMode.Empty
+        ongoing && (progressStyle || promotedOngoing) -> IslandMode.LiveActivity
         packageName == DODO && LiveActivityParser.isOrderTracking(title, text, ongoing, progressMax) -> IslandMode.LiveActivity
         else -> IslandMode.Empty
     }

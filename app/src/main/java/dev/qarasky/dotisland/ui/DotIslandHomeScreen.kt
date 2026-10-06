@@ -34,6 +34,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.qarasky.dotisland.data.INotificationRepository
 import dev.qarasky.dotisland.data.DotIslandPublisherStore
+import dev.qarasky.dotisland.data.LiveUpdateSourceStore
 import dev.qarasky.dotisland.data.DotIslandSettings
 import dev.qarasky.dotisland.data.DotIslandSettingsRepository
 import dev.qarasky.dotisland.service.DotIslandNotificationListenerService
@@ -47,7 +48,8 @@ import kotlinx.coroutines.launch
 fun DotIslandHomeScreen(
     repository: DotIslandSettingsRepository,
     notificationRepository: INotificationRepository,
-    publisherStore: DotIslandPublisherStore
+    publisherStore: DotIslandPublisherStore,
+    liveUpdateSourceStore: LiveUpdateSourceStore
 ) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
@@ -120,9 +122,9 @@ fun DotIslandHomeScreen(
             Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 MicroLabel("ACTIVITIES")
                 SourceRow("Spotify", PersonalActivityPolicy.SPOTIFY, access.notifications)
-                SourceRow("Dodo Pizza", PersonalActivityPolicy.DODO, access.notifications, unverified = true)
                 SourceRow("Calls", PersonalActivityPolicy.DIALER, access.notifications)
             }
+            LiveUpdateSourceAccessSection(liveUpdateSourceStore, access.notifications)
             PublisherAccessSection(publisherStore)
             if (!access.accessibility || !access.notifications || !access.batteryExempt) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

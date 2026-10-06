@@ -31,7 +31,14 @@ fun rememberDisplayCameraBounds(): List<Rect> {
         if (Build.VERSION.SDK_INT < 29) return@remember emptyList()
         val display = view.display ?: context.getSystemService(DisplayManager::class.java)
             ?.getDisplay(Display.DEFAULT_DISPLAY)
-        val cutout = display?.cutout ?: return@remember emptyList()
+        displayCameraBounds(display)
+    }
+}
+
+/** Shared by Compose and the accessibility window's sizing calculation. */
+internal fun displayCameraBounds(display: Display?): List<Rect> {
+        if (Build.VERSION.SDK_INT < 29) return emptyList()
+        val cutout = display?.cutout ?: return emptyList()
         val bounds = cutout.boundingRects.map { Rect(it.left.toFloat(), it.top.toFloat(), it.right.toFloat(), it.bottom.toFloat()) }
         val pathBounds = if (Build.VERSION.SDK_INT >= 31) {
             cutout.cutoutPath?.let { path ->
@@ -45,8 +52,7 @@ fun rememberDisplayCameraBounds(): List<Rect> {
             pathBounds?.intersect(declared)?.takeUnless { it.isEmpty } ?: declared
         }
         android.util.Log.d("IslandCameraGeometry", "cutout rectangles=$bounds path=$pathBounds exclusions=$cameraBounds")
-        cameraBounds
-    }
+        return cameraBounds
 }
 
 /** Move only items that intersect the physical exclusion, not the entire header row. */

@@ -113,7 +113,7 @@ private val REGISTRY: Map<IslandMode, IslandModePresentation> = buildMap {
     // content-dense modes so the card does not visibly grow on first paint.
     put(IslandMode.Music, MUSIC_EXPANDED_HEIGHT_DP) { Color(it.musicVisualizerColor) }
     put(IslandMode.IncomingCall, 118f) { Color(it.callColor) }
-    put(IslandMode.LiveActivity, 155f) { Color(it.liveActivityColor) }
+    put(IslandMode.LiveActivity, 112f) { Color(it.liveActivityColor) }
     put(IslandMode.Published, 148f) { Color.White }
 }
 

@@ -260,6 +260,15 @@ class DotIslandOverlayService : AccessibilityService() {
                 }
             }
         }
+        serviceScope.launch {
+            runSuspendCatchingLogged(TAG, "Selected-activity collector failed") {
+                viewModel.selectedIndex.collectLatest {
+                    if (!destroyed && viewModel.settings.value.enabled) {
+                        updateWindowLayoutParams(isWindowExpanded, viewModel.settings.value)
+                    }
+                }
+            }
+        }
     }
 
     override fun onServiceConnected() {
@@ -433,9 +442,6 @@ class DotIslandOverlayService : AccessibilityService() {
     private fun updateWindowLayoutParams(expanded: Boolean, settings: DotIslandSettings) {
         if (destroyed || !::windowManager.isInitialized || !::viewModel.isInitialized) return
         val view = islandView ?: return
-        val density = resources.displayMetrics.density
-        val screenWidthPx = resources.displayMetrics.widthPixels.toFloat()
-
         val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
         val isLocked = keyguardManager?.isKeyguardLocked == true
         isLockScreenActive = isLocked
@@ -452,12 +458,7 @@ class DotIslandOverlayService : AccessibilityService() {
 
         // Collapsed: size the window to the pill. Expanded: span the display so
         // the card can be full-bleed and so taps outside collapse it.
-        val geometry = computeCollapsedWindowGeometry(
-            settings = settings,
-            notificationCount = viewModel.visibleNotifications.value.size,
-            density = density,
-            screenWidthPx = screenWidthPx
-        )
+        val geometry = compactWindowGeometry(settings)
 
         val h = if (expanded) WindowManager.LayoutParams.MATCH_PARENT else geometry.heightPx
         val w = if (expanded) WindowManager.LayoutParams.MATCH_PARENT else geometry.widthPx
@@ -540,15 +541,22 @@ class DotIslandOverlayService : AccessibilityService() {
         }
     }
 
+    private fun compactWindowGeometry(settings: DotIslandSettings): CollapsedWindowGeometry {
+        val list = if (::viewModel.isInitialized) viewModel.visibleNotifications.value else emptyList()
+        // Keep a stable compact envelope for every possible main activity. A
+        // source swap animates width/position; shrinking to the incoming source's
+        // bounds immediately would clip the outgoing pill and its companion.
+        val profiles = listOf(settings) + list.map {
+            dev.qarasky.dotisland.util.collapsedCutoutSettings(this, settings, it)
+        }
+        return unionCollapsedWindowGeometry(profiles.map { profile ->
+            computeCollapsedWindowGeometry(profile, list.size, resources.displayMetrics.density,
+                resources.displayMetrics.widthPixels.toFloat())
+        })
+    }
+
     private fun collapsedParams(settings: DotIslandSettings): WindowManager.LayoutParams {
-        val density = resources.displayMetrics.density
-        val screenWidthPx = resources.displayMetrics.widthPixels.toFloat()
-        val geometry = computeCollapsedWindowGeometry(
-            settings = settings,
-            notificationCount = if (::viewModel.isInitialized) viewModel.visibleNotifications.value.size else 0,
-            density = density,
-            screenWidthPx = screenWidthPx
-        )
+        val geometry = compactWindowGeometry(settings)
 
         val currentFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
@@ -682,11 +690,21 @@ internal data class CollapsedWindowGeometry(
     val yPx: Int
 )
 
+/** Smallest compact window containing all source-switch layouts (screen-relative). */
+internal fun unionCollapsedWindowGeometry(geometries: List<CollapsedWindowGeometry>): CollapsedWindowGeometry {
+    require(geometries.isNotEmpty())
+    val left = geometries.minOf { it.xPx - it.widthPx / 2f }
+    val right = geometries.maxOf { it.xPx + it.widthPx / 2f }
+    val center = kotlin.math.round((left + right) / 2f).toInt()
+    val width = kotlin.math.ceil(2f * maxOf(center - left, right - center)).toInt()
+    val top = geometries.minOf { it.yPx }
+    return CollapsedWindowGeometry(width,
+        geometries.maxOf { it.yPx + it.heightPx } - top, center, top)
+}
+
 /**
  * @param horizontalPaddingDp margin added to each side of the group.
- *   Must be at least [IslandOverlayView]'s collapsed drag clamp
- *   (`PILL_DRAG_MAX_OFFSET_DP`, 24dp) or the pill clips against the window edge
- *   at the extremes of a drag. The collapsed expand/collapse slide
+ *   Reserves animation headroom; the island cannot be dragged. The collapsed expand/collapse slide
  *   ([COLLAPSED_TRANSLATION_MAX_DP], 32dp) only runs while the window is
  *   MATCH_PARENT, so it does not need headroom here.
  */
@@ -748,8 +766,7 @@ private const val EDGE_PADDING_DP = 8f
 /**
  * Horizontal margin around the group, per side.
  *
- * Must exceed the collapsed drag clamp of 24dp so the pill is never clipped by
- * the window edge mid-drag, plus a little slack.
+ * Animation headroom around the compact source-switch envelope.
  */
 private const val COLLAPSED_WINDOW_PADDING_DP = 28f
 

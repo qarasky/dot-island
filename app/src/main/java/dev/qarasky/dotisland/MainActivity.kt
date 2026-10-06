@@ -13,6 +13,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import dev.qarasky.dotisland.data.INotificationRepository
 import dev.qarasky.dotisland.data.DotIslandPublisherStore
+import dev.qarasky.dotisland.data.LiveUpdateSourceStore
 import dev.qarasky.dotisland.data.DotIslandSettingsRepository
 import dev.qarasky.dotisland.ui.DotIslandHomeScreen
 import dev.qarasky.dotisland.ui.DotIslandTheme
@@ -25,6 +26,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var settingsRepository: DotIslandSettingsRepository
     @Inject lateinit var notificationRepository: INotificationRepository
     @Inject lateinit var publisherStore: DotIslandPublisherStore
+    @Inject lateinit var liveUpdateSourceStore: LiveUpdateSourceStore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,7 +37,8 @@ class MainActivity : ComponentActivity() {
                 DotIslandHomeScreen(
                     repository = settingsRepository,
                     notificationRepository = notificationRepository,
-                    publisherStore = publisherStore
+                    publisherStore = publisherStore,
+                    liveUpdateSourceStore = liveUpdateSourceStore
                 )
             }
         }

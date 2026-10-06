@@ -8,16 +8,31 @@ package dev.qarasky.dotisland.util
 
 /** Conservative Dodo notification parsing; never invents delivery percentage/ETA. */
 object LiveActivityParser {
-    private val etaPattern = Regex("(?<![\\p{L}\\d])\\d{1,3}(?:\\s*[–-]\\s*\\d{1,3})?\\s*(?:minutes?|mins?|мин(?:ут[аы]?)?)(?!\\p{L})", RegexOption.IGNORE_CASE)
+    private val etaPattern = Regex("(?<![\\p{L}\\d])[~≈]?\\s*\\d{1,3}(?:\\s*[–-]\\s*\\d{1,3})?\\s*(?:minutes?|mins?|мин(?:ут[аы]?)?)(?!\\p{L})", RegexOption.IGNORE_CASE)
     private val promotions = listOf("discount", "coupon", "promo", "% off", "order now", "скидк", "промокод", "акци", "закажите")
     private val orderStates = listOf("order accepted", "order confirmed", "your order", "preparing", "baking", "out for delivery",
         "courier", "delivered", "заказ принят", "заказ подтвержд", "ваш заказ", "готовим", "готовится", "печи", "курьер", "доставлен")
     fun isOrderTracking(title: String, text: String, ongoing: Boolean, progressMax: Int): Boolean {
         val content = "$title $text".lowercase()
-        if (promotions.any(content::contains)) return false
+        if (isPromotional(title, text)) return false
         return orderStates.any(content::contains) || (ongoing && progressMax > 0)
     }
+    fun isPromotional(title: String, text: String): Boolean =
+        promotions.any("$title $text".lowercase()::contains)
     fun eta(title: String, text: String): String? =
-        etaPattern.find("$title $text")?.value
+        etaPattern.find("$title $text")?.value?.trim()
+    /** Omit an ETA-only sentence when the header already displays that exact ETA. */
+    fun detailText(title: String, text: String): String? {
+        if (text.isBlank()) return null
+        val time = eta(title, text) ?: return text
+        val prefix = text.removeSuffix(time).trim().lowercase()
+        return if (text.endsWith(time) && prefix in listOf("", "будем через", "через", "arriving in", "in")) null else text
+    }
     fun progress(value: Int, max: Int): Float? = if (max > 0) (value.toFloat() / max).coerceIn(0f, 1f) else null
+    // Dodo reports 100/100 while the courier is still delivering. Progress is
+    // not completion: only explicit terminal source titles stop the activity pulse.
+    fun isComplete(title: String): Boolean = title.trim().lowercase() in setOf(
+        "доставлен", "доставлено", "заказ доставлен", "заказ завершен", "заказ завершён",
+        "delivered", "order delivered", "order complete", "completed"
+    )
 }

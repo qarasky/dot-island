@@ -28,7 +28,9 @@ data class IslandNotification(
     val mediaIsPlaying: Boolean = false,
     val mediaToken: android.media.session.MediaSession.Token? = null,
     val mode: IslandMode = IslandMode.Empty,
-    val contentIntent: PendingIntent? = null
+    val contentIntent: PendingIntent? = null,
+    val progressIndeterminate: Boolean = false,
+    val liveUpdateOngoing: Boolean = false
 ) {
     // Derived: no need to store separately
     val actions: List<String>

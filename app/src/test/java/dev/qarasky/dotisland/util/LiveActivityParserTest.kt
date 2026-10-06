@@ -4,6 +4,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LiveActivityParserTest {
+    @Test fun deliveryIsStillWorkingEvenWhenSourceProgressIsFull() {
+        assertFalse(LiveActivityParser.isComplete("Везем заказ"))
+        assertFalse(LiveActivityParser.isComplete("Курьер в пути"))
+        assertFalse(LiveActivityParser.isComplete("Готовим"))
+        assertTrue(LiveActivityParser.isComplete("Заказ доставлен"))
+        assertTrue(LiveActivityParser.isComplete("Delivered"))
+    }
+    @Test fun actualDodoProgressNotificationIsRecognizedWithoutLosingApproximation() {
+        assertTrue(LiveActivityParser.isOrderTracking("Готовим", "Будем через ~43 мин", true, 100))
+        assertEquals("~43 мин", LiveActivityParser.eta("Готовим", "Будем через ~43 мин"))
+        assertEquals(0.5f, LiveActivityParser.progress(50, 100)!!, 0f)
+        assertEquals("≈15 мин", LiveActivityParser.eta("Доставка", "Через ≈15 мин"))
+        assertNull(LiveActivityParser.detailText("Готовим", "Будем через ~43 мин"))
+        assertEquals("Курьер в пути, через 15 мин", LiveActivityParser.detailText("Доставка", "Курьер в пути, через 15 мин"))
+        assertEquals("Готовим пиццу", LiveActivityParser.detailText("Заказ", "Готовим пиццу"))
+    }
     @Test fun englishAndRussianTrackingAreRecognized() {
         assertTrue(LiveActivityParser.isOrderTracking("Your order", "Out for delivery", false, 0))
         assertTrue(LiveActivityParser.isOrderTracking("Заказ принят", "Курьер в пути", false, 0))

@@ -23,6 +23,23 @@ import org.junit.Test
  */
 class CollapsedWindowGeometryTest {
 
+    @Test fun `source switch envelope contains wide dodo and narrow music layouts`() {
+        val music = geometry(settings(width = 112f), notificationCount = 2)
+        val dodo = geometry(settings(width = 134f, xOffset = 11f), notificationCount = 2)
+        val envelope = unionCollapsedWindowGeometry(listOf(music, dodo))
+        assertEquals(envelope, unionCollapsedWindowGeometry(listOf(dodo, music)))
+        for (candidate in listOf(music, dodo)) {
+            assertTrue(envelope.xPx - envelope.widthPx / 2f <= candidate.xPx - candidate.widthPx / 2f)
+            assertTrue(envelope.xPx + envelope.widthPx / 2f >= candidate.xPx + candidate.widthPx / 2f)
+        }
+        assertTrue(envelope.widthPx < screenWidthPx)
+    }
+
+    @Test fun `single layout envelope preserves exact geometry`() {
+        val original = geometry()
+        assertEquals(original, unionCollapsedWindowGeometry(listOf(original)))
+    }
+
     /** Nothing Phone (4a): 1224x2720 at an effective density of 2.75. */
     private val density = 2.75f
     private val screenWidthPx = 1224f
@@ -161,18 +178,14 @@ class CollapsedWindowGeometryTest {
     }
 
     @Test
-    fun `margin exceeds the collapsed drag clamp so the pill is never clipped`() {
-        // IslandOverlayView clamps the collapsed horizontal drag to +/- 24dp.
-        // The window margin must cover that or the pill clips mid-drag.
-        val dragClampDp = 24f
+    fun `compact window retains a small animation safety margin`() {
         val g = geometry()
         val groupWidthPx = (112f * density).toInt()
         val marginEachSidePx = (g.widthPx - groupWidthPx) / 2f
 
         assertTrue(
-            "Margin ${marginEachSidePx / density}dp per side is below the " +
-                "${dragClampDp}dp drag clamp and would clip the pill",
-            marginEachSidePx / density >= dragClampDp
+            "Compact animation safety margin is missing",
+            marginEachSidePx / density >= 28f
         )
     }
 

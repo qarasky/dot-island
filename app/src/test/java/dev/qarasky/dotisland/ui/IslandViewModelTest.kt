@@ -23,6 +23,24 @@ class IslandViewModelTest {
         return IslandViewModel(settings, repo)
     }
     private fun music() = IslandNotification("spotify", "com.spotify.music", "Spotify", "Song", "Artist", 0L, mode = IslandMode.Music)
+    private fun dodo() = IslandNotification("dodo", "ru.dodopizza.app", "Dodo Pizza", "Готовим", "Через 37 мин", 0L, mode = IslandMode.LiveActivity)
+    @Test fun selectingCompanionSwitchesMainActivityWithoutExpanding() = runTest {
+        val repo = DotIslandNotificationRepository()
+        val vm = viewModel(repo)
+        repo.postNotification(dodo())
+        repo.postNotification(music())
+        runCurrent()
+        repeat(6) { iteration ->
+            val target = if (iteration % 2 == 0) IslandMode.Music else IslandMode.LiveActivity
+            val index = vm.visibleNotifications.value.indexOfFirst { it.mode == target }
+            vm.setSelectedNotificationIndex(index)
+            runCurrent()
+            assertEquals(target, vm.mode.value)
+            assertFalse(vm.expanded.value)
+        }
+        vm.expand()
+        assertTrue(vm.expanded.value)
+    }
     @Test fun idleCannotExpand() = runTest {
         val vm = viewModel(DotIslandNotificationRepository())
         runCurrent()

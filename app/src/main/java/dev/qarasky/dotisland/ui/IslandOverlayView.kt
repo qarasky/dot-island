@@ -22,16 +22,14 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.positionChange
 import kotlin.math.abs
-import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Box
@@ -130,9 +128,6 @@ fun IslandOverlayView(
     val currentNotifications by rememberUpdatedState(notifications)
     val currentSelectedIndex by rememberUpdatedState(safeIndex)
 
-    val scope = rememberCoroutineScope()
-    var dragOffset by remember { mutableStateOf(0f) }
-    var pillDragOffsetX by remember { mutableStateOf(0f) }
 
     val context = LocalContext.current
     val hostView = androidx.compose.ui.platform.LocalView.current
@@ -271,8 +266,8 @@ fun IslandOverlayView(
     ).dp
     val cutoutSafeTop = rememberDisplayCutoutSafeTop(statusBarHeight.dp)
     val cameraBounds = rememberDisplayCameraBounds()
-    // Music arranges its artwork and text individually around the actual cutout.
-    val expandedContentTopPadding = if (activeMode == IslandMode.Music && cameraBounds.isNotEmpty()) 0.dp else calculateExpandedContentTopPadding(
+    // Music and Dodo position each header element around the actual cutout.
+    val expandedContentTopPadding = if (activeMode in setOf(IslandMode.Music, IslandMode.LiveActivity) && cameraBounds.isNotEmpty()) 0.dp else calculateExpandedContentTopPadding(
         expandedTopOffset.value, cutoutSafeTop.value
     ).dp
     val isIdleHiding = settings.hideWhenIdle && notifications.isEmpty()
@@ -578,8 +573,8 @@ fun IslandOverlayView(
                     hostView.getLocationOnScreen(windowLocation)
                     translationX = animatedXOffset.toPx() + calculateWindowCenterCorrection(
                         displayMetrics.widthPixels, windowWidthPx, windowLocation[0]
-                    ) + (if (!currentExpanded) pillDragOffsetX else 0f)
-                    translationY = yOffset.toPx() - windowLocation[1] + dragOffset
+                     )
+                    translationY = yOffset.toPx() - windowLocation[1]
                     scaleX = switchScaleAnim.value
                     scaleY = switchScaleAnim.value
                     shape = islandCornerShape(safeRadius(), squareTop)
@@ -656,7 +651,7 @@ fun IslandOverlayView(
                                 if (wasExpandedAtStart) {
                                     val swipeUpThreshold = -SWIPE_THRESHOLD_DP * displayMetrics.density
                                     val swipeDownThreshold = SWIPE_THRESHOLD_DP * displayMetrics.density
-                                    if (isDragging && currentSettings.enableSwipeActions && dragOffset < swipeUpThreshold) {
+                                    if (isDragging && currentSettings.enableSwipeActions && dragAccumulatorY < swipeUpThreshold) {
                                         val isHold = isHoldRegistered || totalElapsedMs >= HOLD_GESTURE_THRESHOLD_MS
                                         val actionStr = if (isHold) currentSettings.swipeHoldUpAction else currentSettings.swipeUpAction
                                         val action = SwipeAction.fromId(actionStr, if (isHold) SwipeAction.DismissAll else SwipeAction.DismissCurrent)
@@ -674,7 +669,7 @@ fun IslandOverlayView(
                                             notificationsSize = currentNotifications.size,
                                             currentIndex = currentSelectedIndex
                                         )
-                                    } else if (isDragging && currentSettings.enableSwipeActions && dragOffset > swipeDownThreshold) {
+                                    } else if (isDragging && currentSettings.enableSwipeActions && dragAccumulatorY > swipeDownThreshold) {
                                         val action = SwipeAction.fromId(currentSettings.swipeDownAction, SwipeAction.FloatingWindow)
                                         executeSwipeAction(
                                             action = action,
@@ -772,7 +767,7 @@ fun IslandOverlayView(
                                                         currentIndex = currentSelectedIndex
                                                     )
                                                 } else if (dragAccumulatorY > pillThreshold) {
-                                                    val action = SwipeAction.fromId(currentSettings.pillSwipeDownAction, SwipeAction.Expand)
+                                                    val action = SwipeAction.fromId(currentSettings.pillSwipeDownAction, SwipeAction.None)
                                                     executeSwipeAction(
                                                         action = action,
                                                         currentNotification = currentNotification,
@@ -789,7 +784,7 @@ fun IslandOverlayView(
                                                     )
                                                 }
                                             }
-                                        } else {
+                                        } else if (absX < 10f * displayMetrics.density && absY < 10f * displayMetrics.density) {
                                             // Tap on the collapsed pill.
                                             //
                                             // iOS mapping: a SINGLE TAP opens the source
@@ -833,21 +828,8 @@ fun IslandOverlayView(
                                     if (abs(dragAccumulatorY) > 5f * displayMetrics.density || abs(dragAccumulatorX) > 5f * displayMetrics.density) {
                                         holdJob.cancel()
                                     }
-                                    if (wasExpandedAtStart) {
-                                        dragOffset = dragAccumulatorY.coerceIn(
-                                            -DRAG_MAX_OFFSET_DP * displayMetrics.density,
-                                            DRAG_MAX_OFFSET_DP * displayMetrics.density
-                                        )
-                                    } else {
-                                        pillDragOffsetX = (dragAccumulatorX * 0.35f).coerceIn(
-                                            -24f * displayMetrics.density,
-                                            24f * displayMetrics.density
-                                        )
-                                        dragOffset = (dragAccumulatorY * 0.35f).coerceIn(
-                                            -12f * displayMetrics.density,
-                                            12f * displayMetrics.density
-                                        )
-
+                                    if (!wasExpandedAtStart) {
+                                        // Recognize swipe commands without moving the island.
                                         // Snappy immediate execution when swipe threshold is crossed while dragging
                                         if (!pillGestureTriggered && currentSettings.enablePillSwipeActions) {
                                             val pillThreshold = PILL_SWIPE_THRESHOLD_DP * displayMetrics.density
@@ -911,7 +893,7 @@ fun IslandOverlayView(
                                                             currentIndex = currentSelectedIndex
                                                         )
                                                     } else if (dragAccumulatorY > pillThreshold) {
-                                                        val action = SwipeAction.fromId(currentSettings.pillSwipeDownAction, SwipeAction.Expand)
+                                                        val action = SwipeAction.fromId(currentSettings.pillSwipeDownAction, SwipeAction.None)
                                                         executeSwipeAction(
                                                             action = action,
                                                             currentNotification = currentNotification,
@@ -936,34 +918,6 @@ fun IslandOverlayView(
                         }
 
                         holdJob.cancel()
-                        if (pillDragOffsetX != 0f) {
-                            val startPillOffset = pillDragOffsetX
-                            scope.launch {
-                                androidx.compose.animation.core.Animatable(startPillOffset).animateTo(
-                                    targetValue = 0f,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                                        stiffness = Spring.StiffnessMedium
-                                    )
-                                ) {
-                                    pillDragOffsetX = value
-                                }
-                            }
-                        }
-                        if (dragOffset != 0f) {
-                            val startDrag = dragOffset
-                            scope.launch {
-                                androidx.compose.animation.core.Animatable(startDrag).animateTo(
-                                    targetValue = 0f,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                                        stiffness = Spring.StiffnessMedium
-                                    )
-                                ) {
-                                    dragOffset = value
-                                }
-                            }
-                        }
                     }
                     }
                 },
@@ -1107,17 +1061,20 @@ fun IslandOverlayView(
                     .clip(RoundedCornerShape(secondaryBubbleCorner))
                     .background(pillBackgroundColor.copy(alpha = settings.opacity))
                     .border(ISLAND_BORDER_WIDTH, ISLAND_BORDER_COLOR, RoundedCornerShape(secondaryBubbleCorner))
-                    .clickable(
+                    .combinedClickable(
                         interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        if (secondaryIndex >= 0) {
-                            onPageSelected(secondaryIndex)
+                        indication = null,
+                        onClick = { if (secondaryIndex >= 0) currentOnPageSelected(secondaryIndex) },
+                        onLongClick = {
+                            if (secondaryIndex >= 0) {
+                                currentOnPageSelected(secondaryIndex)
+                                if (!currentExpanded) {
+                                    triggerHapticVibration(context, EXPAND_HAPTIC_DURATION_MS, EXPAND_HAPTIC_AMPLITUDE)
+                                    currentOnToggle()
+                                }
+                            }
                         }
-                        if (!currentExpanded) {
-                            currentOnToggle()
-                        }
-                    },
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
@@ -1185,17 +1142,20 @@ fun IslandOverlayView(
                     )
                     .clip(RoundedCornerShape(settings.cornerRadius.dp))
                     .background(pillBackgroundColor.copy(alpha = settings.opacity))
-                    .clickable(
+                    .combinedClickable(
                         interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        if (tertiaryIndex >= 0) {
-                            onPageSelected(tertiaryIndex)
+                        indication = null,
+                        onClick = { if (tertiaryIndex >= 0) currentOnPageSelected(tertiaryIndex) },
+                        onLongClick = {
+                            if (tertiaryIndex >= 0) {
+                                currentOnPageSelected(tertiaryIndex)
+                                if (!currentExpanded) {
+                                    triggerHapticVibration(context, EXPAND_HAPTIC_DURATION_MS, EXPAND_HAPTIC_AMPLITUDE)
+                                    currentOnToggle()
+                                }
+                            }
                         }
-                        if (!currentExpanded) {
-                            currentOnToggle()
-                        }
-                    },
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 IslandCollapsedContent(
@@ -1368,7 +1328,6 @@ internal fun calculateCollapsedLayout(
 
 private const val SWIPE_THRESHOLD_DP = 35f
 private const val PILL_SWIPE_THRESHOLD_DP = 16f
-private const val DRAG_MAX_OFFSET_DP = 100f
 private const val COMPACT_INDICATOR_GAP_DP = 8f
 private const val HOLD_GESTURE_THRESHOLD_MS = 300L
 

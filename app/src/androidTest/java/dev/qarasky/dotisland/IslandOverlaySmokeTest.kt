@@ -34,15 +34,16 @@ class IslandOverlaySmokeTest {
                 dev.qarasky.dotisland.ui.DotIslandHomeScreen(
                     dev.qarasky.dotisland.data.DotIslandSettingsRepository(context),
                     dev.qarasky.dotisland.data.DotIslandNotificationRepository(),
-                    dev.qarasky.dotisland.data.DotIslandPublisherStore(context)
+                    dev.qarasky.dotisland.data.DotIslandPublisherStore(context),
+                    dev.qarasky.dotisland.data.LiveUpdateSourceStore(context)
                 )
             }
         }
         compose.onAllNodes(isToggleable()).assertCountEquals(1)
         compose.onNodeWithText("Spotify").assertExists()
-        compose.onNodeWithText("Dodo Pizza").assertExists()
+        compose.onNodeWithText("LIVE UPDATES").assertExists()
         compose.onNodeWithText("Calls").assertExists()
-        compose.onNodeWithText("UNVERIFIED").assertExists()
+        compose.onNodeWithText("Allowed notification sources").assertExists()
         compose.onNodeWithText("Color Studio").assertDoesNotExist()
         compose.onNodeWithText("Notification History").assertDoesNotExist()
     }

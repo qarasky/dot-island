@@ -15,6 +15,7 @@ import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.graphics.drawable.toBitmap
@@ -22,6 +23,7 @@ import dev.qarasky.dotisland.data.INotificationRepository
 import dev.qarasky.dotisland.data.DotIslandPublisherStore
 import dev.qarasky.dotisland.data.DotIslandCommand
 import dev.qarasky.dotisland.data.DotIslandSettingsRepository
+import dev.qarasky.dotisland.data.LiveUpdateSourceStore
 import dev.qarasky.dotisland.model.IslandMode
 import dev.qarasky.dotisland.model.IslandNotification
 import dev.qarasky.dotisland.model.IslandNotificationAction
@@ -42,6 +44,8 @@ class DotIslandNotificationListenerService : NotificationListenerService() {
     @Inject lateinit var repository: DotIslandSettingsRepository
     @Inject lateinit var notificationRepository: INotificationRepository
     @Inject lateinit var publisherStore: DotIslandPublisherStore
+    @Inject lateinit var liveUpdateSources: LiveUpdateSourceStore
+    private var allowedLiveUpdatePackages: Set<String>? = null
     private var expiryJob: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate + CoroutineExceptionHandler { _, e ->
         android.util.Log.e(TAG, "Listener failure", e)
@@ -66,6 +70,19 @@ class DotIslandNotificationListenerService : NotificationListenerService() {
 
     override fun onCreate() {
         super.onCreate()
+        scope.launch {
+            liveUpdateSources.allowedPackages.collect { allowed ->
+                allowedLiveUpdatePackages = allowed
+                notificationRepository.notifications.value
+                    .filter { it.mode == IslandMode.LiveActivity && it.packageName !in allowed }
+                    .forEach { notificationRepository.removeNotification(it.key) }
+                if (enabled && isSystemConnected) {
+                    runCatchingLogged(TAG, "Live Update source refresh failed") {
+                        activeNotifications.orEmpty().forEach(::ingest)
+                    }
+                }
+            }
+        }
         scope.launch {
             repository.settings.collect {
                 enabled = it.enabled
@@ -164,7 +181,10 @@ class DotIslandNotificationListenerService : NotificationListenerService() {
         val max = n.extras.getInt(Notification.EXTRA_PROGRESS_MAX)
         val mode = PersonalActivityPolicy.mode(sbn.packageName, n.category,
             n.extras.containsKey(Notification.EXTRA_MEDIA_SESSION), n.flags and Notification.FLAG_ONGOING_EVENT != 0,
-            title, text, max, n.flags and Notification.FLAG_GROUP_SUMMARY != 0)
+            title, text, max, n.flags and Notification.FLAG_GROUP_SUMMARY != 0,
+            allowedLiveUpdatePackages = allowedLiveUpdatePackages.orEmpty(),
+            progressStyle = n.extras.getString(Notification.EXTRA_TEMPLATE) == "android.app.Notification\$ProgressStyle",
+            promotedOngoing = Build.VERSION.SDK_INT >= 36 && n.flags and Notification.FLAG_PROMOTED_ONGOING != 0)
         if (mode == IslandMode.Empty) {
             notificationRepository.removeNotification(sbn.key)
             return
@@ -176,14 +196,21 @@ class DotIslandNotificationListenerService : NotificationListenerService() {
             return
         }
         val actions = n.actions.orEmpty().map { IslandNotificationAction(it.title.toString(), it.actionIntent) }
-        val appName = if (mode == IslandMode.LiveActivity) "Dodo Pizza" else "Phone"
+        val appName = runCatching {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString()
+        }.getOrDefault(sbn.packageName)
+        val sourceIcon = if (mode == IslandMode.LiveActivity) {
+            runCatching { n.smallIcon?.loadDrawable(this)?.toBitmap(96, 96) }.getOrNull()
+        } else null
         notificationRepository.postNotification(IslandNotification(
             key = sbn.key, packageName = sbn.packageName, appName = appName,
             title = title, text = text, timeMillis = n.`when`.takeIf { it > 0 } ?: sbn.postTime,
-            icon = runCatching { packageManager.getApplicationIcon(sbn.packageName).toBitmap(96, 96) }.getOrNull(),
+            icon = sourceIcon ?: runCatching { packageManager.getApplicationIcon(sbn.packageName).toBitmap(96, 96) }.getOrNull(),
             largeIcon = runCatching { n.getLargeIcon()?.loadDrawable(this)?.toBitmap(128, 128) }.getOrNull(),
             actionIntents = actions, category = n.category, mode = mode, contentIntent = n.contentIntent,
-            progress = n.extras.getInt(Notification.EXTRA_PROGRESS), progressMax = max
+            progress = n.extras.getInt(Notification.EXTRA_PROGRESS), progressMax = max,
+            progressIndeterminate = n.extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE),
+            liveUpdateOngoing = n.flags and Notification.FLAG_ONGOING_EVENT != 0
         ))
     }
 
