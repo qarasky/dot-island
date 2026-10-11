@@ -1,83 +1,107 @@
-# Much ado about a dot
+# Much ado about a dot / revision 02
 
-## Brief
+## The correction
 
-A joke launch campaign for a real, personal Android app. Audience: design-minded
-Android tinkerers who appreciate obsessive details and over-serious product launches.
-Make the tiny ring memorable; demonstrate why it becomes useful; land the joke that
-all this engineering serves one phone. This is not a public commercial release.
+The first campaign used approximate SVG UI and too many independent visual ideas.
+It substituted a waveform glyph for real artwork, simple dots for the dot matrix,
+invented a music card, exaggerated the ring thickness, and never established a
+continuous product story. Attractive styling did not compensate for that mismatch.
 
-Primary website action: try the interaction, then inspect the open-source project.
-The acquisition CTA explains the personal-build status rather than collecting money,
-emails, or pretending there is a published download. No tracking or payment backend.
+Revision 02 uses captured app pixels, not a reimplementation of the interface.
+The app is the focal object. Its actual music artwork supplies the only colour.
+The page follows one interaction: glance → hold → release → quiet idle.
 
-## Creative rules
+## Before drawing, look
 
-- The ring is the protagonist. Carry its centered camera hole across morphs.
-- Off-white technical paper, black surfaces, hairline rules, precise dimension marks.
-- Barlow Medium/Semibold and IBM Plex Mono. Fonts are local, SIL OFL licensed.
-- One movement earns attention at a time. Cuts change the argument, not just the slide.
-- The humor comes from disproportionate seriousness, not memes or random jokes.
-- Readable without audio. Original synthesized percussive sound; no borrowed songs,
-  generic AI narrator, generated stock imagery, fake customers or testimonials.
-- Website interactions are labelled illustrations, not live phone telemetry.
-- Approximate A069 camera-fit geometry is a device-specific observation. Do not
-  advertise measured 120Hz, universal phone support, or fabricated delivery ETAs.
-- Source data stays source data. Sample delivery text is explicitly illustrative.
+Compared the repository's music screenshots, the later A069 idle/reveal screenshots,
+and these implementation files:
 
-## Film edit (32 seconds, 1920 × 1080, 60fps)
+- `IslandCollapsedContent.kt`: squircle source artwork on the left; music dot matrix
+  on the right; idle standby dots and monospaced label. No music waveform glyph.
+- `expanded/MusicExpanded.kt`: 64dp artwork, 20dp insets; title/artist and dot matrix;
+  seek timeline above controls; previous/pause/next plus audio-output action.
+- `util/IdleIslandLayout.kt`: approximately 29dp around the actual camera path,
+  with 2dp clearance. A thin grey boundary on a black surface, not a thick donut.
 
-| Time | Argument | Treatment |
+See [CAPTURE_PROVENANCE.md](CAPTURE_PROVENANCE.md) for exact sources and limitations.
+The music screenshots predate the later idle verification. Do not pretend they are
+one freshly captured session or that still-image dissolves prove native motion.
+
+## Visual hierarchy
+
+- Black is the product's environment, not a boxed decoration.
+- One dominant headline and one real music panel in the hero.
+- Captures stay in the same top-of-screen position through the comparison study.
+- Real idle ring at native pixel size supplies the surprising quiet counterpoint.
+- One light ending carries the personal-build punchline.
+- Remove the technical grid, dimension callouts, spec ticker, numbered feature cards,
+  fake pricing/acquisition panel and duplicated sales messages.
+- Type remains Barlow. Monospace is reserved for the film, not scattered across the
+  page as decoration. Fonts remain local and SIL OFL licensed.
+- The primary action is to watch; the secondary action is to inspect the source.
+  There is no public release, checkout, tracking or mailing list.
+
+## Film edit
+
+Retain the approved 32-second rhythm, score, type and end card. Replace all product
+drawings with image crops. Editorial camera moves and dissolves are allowed;
+manufacturing a pixel-inaccurate native morph is not.
+
+| Time | Beat | Actual visual |
 | --- | --- | --- |
-| 0–4 | Much ado about a dot. | Oversized ring on paper. Brand visible immediately. |
-| 4–9 | A little room for your music. | Hard cut to black; ring stretches into a music pill. |
-| 9–14 | And your very important pizza. | Same camera anchor; delivery glyph and source-style dots. |
-| 14–20 | Hold for a little more. | A deliberate press expands the music panel; release collapses. |
-| 20–26 | Built for one phone. | Return to paper. The giant object contracts to its actual small ambition. |
-| 26–32 | Dot Island. Much ado about a dot. | Quiet end card with a concrete source CTA. |
+| 0–4 | Much ado about a dot. | Enlarged idle capture, cropped circularly for the edit. |
+| 4–9 | A little room for your music. | Captured compact music island. |
+| 9–14 | Your screen is still yours. | Original home-screen capture with the island in context. |
+| 14–20 | Hold for a little more. | Equal-scale compact/expanded captures; dissolve in and out. |
+| 20–26 | Built for one phone. | Captured idle and tap-reveal states. |
+| 26–32 | Dot Island. | Captured dot above the original end-card typography. |
 
-Film geometry is an enlarged vector demonstration, not captured UI. It keeps the
-black surfaces, cutout anchor, squircle artwork and tap/hold semantics of the app.
+No usable delivery screenshot was available and the A069 was not connected during
+this revision. The pizza beat was replaced instead of inventing its interface or
+testing on the emulator. Live Updates remain described truthfully in the page copy.
 
-## Website argument
+## Further reference study
 
-1. Recognize the object: bold promise, annotated ring, one primary action.
-2. Understand the behavior: interactive idle/music/delivery demo and hold/release.
-3. See the benefit: music and source-approved Live Updates at a glance, quiet idle.
-4. Resolve objections: one tested device, Android permissions, ordinary notifications
-   untouched, source opt-in, source-controlled ETA, unpublished personal build.
-5. Act: inspect the project. A deadpan acquisition panel completes the joke.
+Reviewed on 2026-10-11, including actual browser screenshots of the current sites.
+Current sites are distinguished from their archived award submissions. Awards are
+craft references; no conversion claims are inferred.
 
-## Research and what it changed
+- [Daylight](https://daylightcomputer.com/) and
+  [basement's launch case study](https://basement.studio/showcase/daylight-simplicity-in-motion):
+  a single real product scene grounds the promise. Their story proceeds from a
+  recognizable object into specific uses. We borrow that grounding, not their
+  photography, palette or floating promotion panels.
+  [Awwwards SOTD](https://www.awwwards.com/sites/daylight) (2024, 7.39);
+  [Webby visual/moving-image nominations](https://winners.webbyawards.com/2025/websites-and-mobile-sites/features-design/best-visual-design-aesthetic/323444/daylight-computer-store).
+- [Teenage Engineering OP–1 field](https://teenage.engineering/products/op-1):
+  actual product imagery is given room; close-ups explain a real detail instead of
+  framing every sentence with a decorative UI device. Our crop must be real too.
+- [Apple AirPods Pro](https://www.apple.com/airpods-pro/): consistent object context
+  through increasingly specific interaction arguments. Use that continuity, not
+  an Apple-style feature carousel or unsupported superiority claims.
+- [The Light Phone](https://www.thelightphone.com/): an intentional, restrained
+  product worldview. Its product awards
+  ([Red Dot](https://www.red-dot.org/project/the-light-phone-39697),
+  [iF](https://ifdesign.com/en/winner-ranking/project/the-light-phone/258258))
+  are hardware-design awards, not claimed website awards.
+- [Opal Tadpole / Awwwards SOTD](https://www.awwwards.com/sites/opal-tadpole):
+  small-product confidence and a distinct hero. Retained from the initial research.
+- [Google ABCDs](https://support.google.com/google-ads/answer/14783551?hl=en):
+  retain the immediate hook, early brand, focused story and specific source CTA.
 
-Reviewed 2026-10-11. These are craft references, not evidence that our page converts.
-Award scores are aesthetic judgements; no conversion rate is inferred from them.
+## Engineering references retained
 
-- [FFrames official skill](https://github.com/dmtrKovalenko/fframes/tree/main/skills/fframes-video)
-  and its design/API/audio guides: readable holds, safe margins, bundled fonts,
-  deterministic motion, contact-sheet inspection, audio peak verification.
-- [Remotion official agent skills](https://www.remotion.dev/docs/ai/skills) and
-  [official repository](https://github.com/remotion-dev/skills): useful React reuse,
-  frame-based animation and composition previews. FFrames chosen here because this
-  film is primarily SVG geometry and typography; Metal is available locally.
-- [Google ABCDs](https://support.google.com/google-ads/answer/14783551?hl=en): hook
-  immediately, brand early, focus one message, connect through humor, finish with
-  a specific action. We keep text-readable storytelling instead of adding a stock VO.
-- [Opal Tadpole, Awwwards SOTD](https://www.awwwards.com/sites/opal-tadpole)
-  (2024, 7.52): object-led storytelling, macro detail, small-product confidence.
-- [Opal Camera, Awwwards SOTD](https://www.awwwards.com/sites/opal-camera-inc)
-  (2023, 7.42), [current Opal site](https://op.al/): tactile product world and editorial
-  voice. Current site is different from the archived award winner; not conflated.
-- [Nothing ecommerce reference](https://www.ecomdesignawards.com/websites/nothing):
-  technical labels and monochrome hierarchy. Do not copy its identity or dot wordmark.
-- [Linear](https://linear.app/): product evidence near the promise and repeated clear
-  action. Avoid copying its now-common glow/bento vocabulary.
-- [Copywriting skill](https://github.com/coreyhaines31/marketingskills/tree/main/skills/copywriting):
-  specific benefits, one argument per section, honest proof, objection handling,
-  concrete CTAs. Ban “reimagined”, “unlock”, fake urgency and inflated feature lists.
+- [FFrames official skill and design/API/audio guides](https://github.com/dmtrKovalenko/fframes/tree/main/skills/fframes-video):
+  deterministic frame-based editing, bundled media, contact sheets and audio QA.
+- [Remotion official skills](https://www.remotion.dev/docs/ai/skills): considered;
+  FFrames remains suitable for this typography-and-capture film on Metal.
+- [Copywriting guidance](https://github.com/coreyhaines31/marketingskills/tree/main/skills/copywriting):
+  honest specifics and one message per section. The earlier page had too many
+  variations of the same joke; the new ending lands it once.
 
-## Review bar
+## Release bar
 
-Inspect the rendered strip, full-size frames and encoded metadata. Check all website
-states with mouse/keyboard, narrow layout and reduced motion. A/B experiments need
-real traffic and consent; none are invented or installed for a joke page.
+Inspect contact sheet and detail frames, verify media resolution/duration/audio,
+and check actual image loading plus pointer, keyboard and reduced-motion behavior.
+Fresh unified phone captures and real footage are the next fidelity improvement;
+they require the A069, not a more elaborate SVG mock.

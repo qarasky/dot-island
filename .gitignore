@@ -20,6 +20,8 @@ debug-helper/
 *.aab
 *.ap_
 captures/
+!marketing/site/assets/captures/
+!marketing/site/assets/captures/*.png
 
 # Signing and local secrets
 *.jks
@@ -49,6 +51,5 @@ marketing/video/frames/
 marketing/video/strip.png
 marketing/video/onion.png
 marketing/video/out.mp4
-marketing/site/assets/launch-poster.png
 marketing/review/
 marketing/video/media/score-raw.wav
