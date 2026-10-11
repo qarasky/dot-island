@@ -11,7 +11,15 @@ product. The app has one monochrome control screen, persisted power/source opt-i
 a live compact preview and contextual permission-repair links. No settings tabs,
 history/database, shortcuts/recent-app access, backup/import/export, update feeds,
 network requests, Shizuku integration, OEM selectors or color/geometry editors.
-The baseline code profile is 112 × 34dp, centred, 12dp from the top. Live Update
+When there are no activities, idle is an empty black camera ring: actual cutout
+path bounds plus 2dp clearance on each side (about 29dp on the A069). A small
+padded touch window makes the ring tappable without widening its visible surface.
+Tap reveals the previous 112 × 34dp `IDLE` pill; tap again or wait five seconds
+to tuck it away. This is transient, not a saved setting or an expanded activity.
+New activity arrival clears the idle reveal. The compact window grows before
+the reveal and shrinks only when the return morph finishes.
+
+The active baseline code profile is 112 × 34dp, centred, 12dp from the top. Live Update
 content extends only the necessary compact edge around a protected camera gap. Runtime density,
 cutout and window-origin conversion are retained; fixed profile is not fixed pixels.
 Lock-screen and landscape presentation remain disabled, as on this phone before

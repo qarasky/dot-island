@@ -13,28 +13,34 @@ import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import dev.qarasky.dotisland.service.DotIslandNotificationListenerService
 import dev.qarasky.dotisland.service.DotIslandOverlayService
-import java.util.concurrent.atomic.AtomicBoolean
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 
 /**
  * Reconnects system-managed services after the package leaves Android's force-stopped state.
  *
  * NotificationListenerService provides an official rebind API. AccessibilityService does not,
- * so for an already-authorized service we issue a harmless component-state change between
- * DEFAULT and ENABLED. Both states leave the manifest-enabled component available, while the
- * package-change signal gives AccessibilityManager/OEM managers a chance to bind it again.
+ * so an enabled-state package-change signal is only a best-effort refresh, not a
+ * guaranteed rebind. Never disable the component: on the A069 that revokes its grant.
+ * Never edit ENABLED_ACCESSIBILITY_SERVICES or any other app's access grants.
  */
 object SystemServiceRecovery {
-    private val accessibilityRefreshAttempted = AtomicBoolean(false)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var lastRestartMs = 0L
 
-    fun requestRecovery(context: Context) {
+    fun requestRecovery(context: Context, retry: Boolean = false) {
+        val appContext = context.applicationContext
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { requestRecovery(appContext, retry) }
+            return
+        }
         runCatchingLogged(TAG, "System-service recovery failed") {
-            val appContext = context.applicationContext
             requestNotificationListenerRebind(appContext)
-
-            if (!DotIslandOverlayService.isSystemConnected &&
-                isAccessibilityPermissionGranted(appContext) &&
-                accessibilityRefreshAttempted.compareAndSet(false, true)
-            ) {
+            val now = SystemClock.elapsedRealtime()
+            if (shouldRestartAccessibility(DotIslandOverlayService.isSystemConnected,
+                    isAccessibilityPermissionGranted(appContext), now, lastRestartMs, retry)) {
+                lastRestartMs = now
                 refreshAccessibilityComponent(appContext)
             }
         }
@@ -58,10 +64,8 @@ object SystemServiceRecovery {
             val packageManager = context.packageManager
             val currentState = packageManager.getComponentEnabledSetting(component)
             val refreshedState = when (currentState) {
-                PackageManager.COMPONENT_ENABLED_STATE_DEFAULT ->
-                    PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-                PackageManager.COMPONENT_ENABLED_STATE_ENABLED ->
-                    PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+                PackageManager.COMPONENT_ENABLED_STATE_DEFAULT -> PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED -> PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
                 else -> return@runCatchingLogged
             }
             packageManager.setComponentEnabledSetting(
@@ -96,3 +100,7 @@ object SystemServiceRecovery {
 
     private const val TAG = "SystemServiceRecovery"
 }
+
+internal fun shouldRestartAccessibility(connected: Boolean, granted: Boolean, now: Long,
+    previous: Long, retry: Boolean = false): Boolean = !connected && granted &&
+    (retry || previous == 0L || now - previous >= 10_000L)

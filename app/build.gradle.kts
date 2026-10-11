@@ -36,6 +36,9 @@ android {
         versionName = "0.0.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    // Instrumentation force-stops its target at start/end. Default to a separate
+    // debug app so tests cannot strand the user's live accessibility binding.
+    testBuildType = providers.gradleProperty("islandTestBuildType").getOrElse("uitest")
 
     buildFeatures {
         compose = true
@@ -64,6 +67,20 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        create("benchmark") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".benchmark"
+            versionNameSuffix = "-benchmark"
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            matchingFallbacks += listOf("release")
+        }
+        create("uitest") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".uitest"
+            versionNameSuffix = "-uitest"
+            matchingFallbacks += listOf("debug")
         }
     }
 
@@ -147,6 +164,7 @@ dependencies {
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    "uitestImplementation"("androidx.compose.ui:ui-test-manifest")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
 }

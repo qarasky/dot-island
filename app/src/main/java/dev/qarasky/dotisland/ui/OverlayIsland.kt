@@ -14,21 +14,26 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.qarasky.dotisland.model.IslandNotification
 import dev.qarasky.dotisland.util.collapsedCutoutSettings
+import dev.qarasky.dotisland.util.idleIslandSettings
 
 @Composable
 fun ThemedOverlayIsland(viewModel: IslandViewModel, statusBarHeight: Float,
     onOpenNotification: (IslandNotification) -> Unit, onOpenFloatingWindow: () -> Unit,
     onOpenNotificationShade: () -> Unit = {}, isFullWidth: Boolean = true,
-    onCollapseAnimationFinished: () -> Unit = {}) {
+    onCollapseAnimationFinished: () -> Unit = {}, idleWindowReady: Boolean = true,
+    onCompactAnimationFinished: () -> Unit = {}) {
     val settings by viewModel.settings.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
     val expanded by viewModel.expanded.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
     val notifications by viewModel.visibleNotifications.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
     val hasSourceActivity by viewModel.hasSourceActivity.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
     val index by viewModel.selectedIndex.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
+    val idleRequested by viewModel.idleRevealed.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
+    val idleRevealed = idleRequested && idleWindowReady
     val context = LocalContext.current
     val active = notifications.getOrNull(index.coerceIn(0, (notifications.size - 1).coerceAtLeast(0)))
-    val compactSettings = remember(context, settings, active) {
-        collapsedCutoutSettings(context, settings, active)
+    val compactSettings = remember(context, settings, active, hasSourceActivity, idleRevealed) {
+        if (!hasSourceActivity && !idleRevealed) idleIslandSettings(context, settings)
+        else collapsedCutoutSettings(context, settings, active)
     }
     DotIslandTheme {
         IslandOverlayView(compactSettings, expanded && isFullWidth, notifications, index,
@@ -37,6 +42,10 @@ fun ThemedOverlayIsland(viewModel: IslandViewModel, statusBarHeight: Float,
             onDismissAllNotifications = viewModel::dismissAllNotifications, onOpenFloatingWindow = onOpenFloatingWindow,
             onOpenNotificationShade = onOpenNotificationShade, statusBarHeight = statusBarHeight,
             isFullWidth = isFullWidth, onCollapseAnimationFinished = onCollapseAnimationFinished,
-            showIdleIndicator = !hasSourceActivity)
+            showIdleIndicator = !hasSourceActivity && idleRevealed,
+            isMinimalIdle = !hasSourceActivity && !idleRevealed,
+            onIdleTap = viewModel::toggleIdleReveal,
+            onCompactAnimationFinished = onCompactAnimationFinished,
+            onExpand = viewModel::expand, onCollapse = viewModel::collapse)
     }
 }

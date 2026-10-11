@@ -69,6 +69,8 @@ class IslandViewModel(
     val selectedIndex = MutableStateFlow(0)
     val isLocked = MutableStateFlow(false)
     val isInputActive = MutableStateFlow(false)
+    val idleRevealed = MutableStateFlow(false)
+    private var idleRevealJob: Job? = null
 
     val mode: StateFlow<IslandMode> = combine(visibleNotifications, selectedIndex) { list, idx ->
         list.getOrNull(idx)?.mode ?: IslandMode.Empty
@@ -84,6 +86,7 @@ class IslandViewModel(
         viewModelScope.launch {
             runSuspendCatchingLogged(TAG, "Notifications collector failed") {
                 visibleNotifications.collect { list ->
+                    hideIdle()
                     selectedIndex.update { currentSelected ->
                         currentSelected.coerceIn(0, (list.size - 1).coerceAtLeast(0))
                     }
@@ -144,6 +147,25 @@ class IslandViewModel(
         if (visibleNotifications.value.isNotEmpty()) expanded.value = true
     }
 
+    fun toggleIdleReveal() {
+        if (visibleNotifications.value.isNotEmpty()) return
+        if (idleRevealed.value) {
+            hideIdle()
+        } else {
+            idleRevealed.value = true
+            idleRevealJob = viewModelScope.launch {
+                delay(IDLE_REVEAL_DELAY_MS)
+                idleRevealed.value = false
+            }
+        }
+    }
+
+    fun hideIdle() {
+        idleRevealJob?.cancel()
+        idleRevealJob = null
+        idleRevealed.value = false
+    }
+
     fun collapse() {
         isInputActive.value = false
         expanded.value = false
@@ -155,12 +177,7 @@ class IslandViewModel(
         }
     }
 
-    private var lastToggleTimeMs = 0L
-
     fun toggleExpanded() {
-        val now = System.currentTimeMillis()
-        if (now - lastToggleTimeMs < 350L) return
-        lastToggleTimeMs = now
         if (expanded.value) collapse() else expand()
     }
 
@@ -215,6 +232,7 @@ class IslandViewModel(
     companion object {
         private const val TAG = "IslandViewModel"
         private const val AUTO_COLLAPSE_DELAY_MS = 5000L
+        internal const val IDLE_REVEAL_DELAY_MS = 5000L
 
         fun provideFactory(
             settingsRepo: DotIslandSettingsRepository,

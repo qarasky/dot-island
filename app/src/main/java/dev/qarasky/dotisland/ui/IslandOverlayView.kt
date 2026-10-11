@@ -10,6 +10,11 @@ package dev.qarasky.dotisland.ui
 import dev.qarasky.dotisland.data.DotIslandCommand
 import dev.qarasky.dotisland.model.SwipeAction
 import dev.qarasky.dotisland.ui.expanded.IslandExpandedContent
+import dev.qarasky.dotisland.ui.expanded.ExpandedContentMeasurements
+import dev.qarasky.dotisland.ui.expanded.ExpandedLayoutEnvironment
+import dev.qarasky.dotisland.ui.expanded.expandedLayoutKey
+import dev.qarasky.dotisland.ui.expanded.interpolatePageHeight
+import androidx.compose.foundation.pager.rememberPagerState
 import dev.qarasky.dotisland.ui.expanded.trySendFirstAction
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -20,6 +25,8 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -91,6 +98,12 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.platform.testTag
 
 @Composable
 fun IslandOverlayView(
@@ -111,11 +124,18 @@ fun IslandOverlayView(
     onDismissAllNotifications: () -> Unit = {},
     isFullWidth: Boolean = true,
     onCollapseAnimationFinished: () -> Unit = {},
-    showIdleIndicator: Boolean = true
+    showIdleIndicator: Boolean = true,
+    isMinimalIdle: Boolean = false,
+    onIdleTap: () -> Unit = {},
+    onCompactAnimationFinished: () -> Unit = {},
+    onExpand: () -> Unit = onToggleExpanded,
+    onCollapse: () -> Unit = onToggleExpanded
 ) {
     // Fix #1: rememberUpdatedState ensures the lambda is always fresh
     // even though pointerInput(Unit) never restarts its coroutine
     val currentOnToggle by rememberUpdatedState(onToggleExpanded)
+    val currentOnExpand by rememberUpdatedState(onExpand)
+    val currentOnCollapse by rememberUpdatedState(onCollapse)
     val currentOnDismiss by rememberUpdatedState(onDismissNotification)
     val currentOnDismissAll by rememberUpdatedState(onDismissAllNotifications)
     val currentOnOpenFloatingWindow by rememberUpdatedState(onOpenFloatingWindow)
@@ -123,6 +143,7 @@ fun IslandOverlayView(
     val currentOnOpenNotification by rememberUpdatedState(onOpenNotification)
     val currentOnPageSelected by rememberUpdatedState(onPageSelected)
     val currentExpanded by rememberUpdatedState(expanded)
+    val currentOnIdleTap by rememberUpdatedState(onIdleTap)
     val currentSettings by rememberUpdatedState(settings)
     val safeIndex = selectedIndex.coerceIn(0, (notifications.size - 1).coerceAtLeast(0))
     val currentNotifications by rememberUpdatedState(notifications)
@@ -144,7 +165,6 @@ fun IslandOverlayView(
         screenWidthDp = configuration.screenWidthDp.toFloat(),
         screenHeightDp = configuration.screenHeightDp.toFloat()
     ).dp
-    val transition = updateTransition(targetState = expanded, label = "islandTransition")
 
     // The display's own corner radius, so the island's curvature is continuous
     // with the screen's. Null when the platform does not report one (API < 31 or
@@ -198,35 +218,6 @@ fun IslandOverlayView(
     val activeNotification = notifications.getOrNull(safeIndex)
     val activeMode = activeNotification?.mode ?: IslandMode.Empty
 
-    val initialEstimatedHeight = remember(activeMode, notifications.isEmpty()) {
-        if (notifications.isEmpty()) 135.dp else defaultEstimatedHeightForMode(activeMode)
-    }
-    var expandedHeight by remember { mutableStateOf(initialEstimatedHeight) }
-
-    // A measurement that arrived while the transition was running, applied once
-    // it settles. See onHeightMeasured below.
-    var pendingMeasuredHeight by remember { mutableStateOf<Dp?>(null) }
-    val isTransitionSettled = !transition.isRunning &&
-        transition.currentState == transition.targetState
-    val currentOnCollapseFinished by rememberUpdatedState(onCollapseAnimationFinished)
-    LaunchedEffect(expanded, isTransitionSettled) {
-        if (!expanded && isTransitionSettled) currentOnCollapseFinished()
-    }
-
-    LaunchedEffect(isTransitionSettled, pendingMeasuredHeight) {
-        val pending = pendingMeasuredHeight
-        if (isTransitionSettled && pending != null && pending != expandedHeight) {
-            android.util.Log.d(TAG, "expanded height ${expandedHeight.value} -> ${pending.value} (deferred)")
-            expandedHeight = pending
-        }
-        if (isTransitionSettled) pendingMeasuredHeight = null
-    }
-
-    LaunchedEffect(activeMode, notifications.isEmpty()) {
-        if (!expanded) {
-            expandedHeight = if (notifications.isEmpty()) 135.dp else defaultEstimatedHeightForMode(activeMode)
-        }
-    }
 
     val compactGap = COMPACT_INDICATOR_GAP_DP.dp
     val miniPillWidth = settings.width.dp
@@ -270,6 +261,66 @@ fun IslandOverlayView(
     val expandedContentTopPadding = if (activeMode in setOf(IslandMode.Music, IslandMode.LiveActivity) && cameraBounds.isNotEmpty()) 0.dp else calculateExpandedContentTopPadding(
         expandedTopOffset.value, cutoutSafeTop.value
     ).dp
+    val measurements = remember { ExpandedContentMeasurements() }
+    val environment = ExpandedLayoutEnvironment(expandedWidth, density.density,
+        density.fontScale, cameraBounds, expandedTopOffset)
+    val activeLayoutKey = activeNotification?.let { expandedLayoutKey(it, environment) }
+    val measuredHeight = measurements.heights[activeLayoutKey]
+    var preparedHeight by remember { mutableStateOf<Dp?>(null) }
+    val pager = rememberPagerState(safeIndex) { notifications.size }
+    LaunchedEffect(notifications.map { it.key }) {
+        measurements.retainSources(notifications.map { it.key }.toSet())
+    }
+    LaunchedEffect(expanded, activeLayoutKey, measuredHeight) {
+        if (!expanded) {
+            preparedHeight = null
+            if (notifications.isNotEmpty()) pager.scrollToPage(safeIndex)
+        } else if (preparedHeight == null && measuredHeight != null) preparedHeight = measuredHeight
+    }
+    // Compose/measure at final width while still compact, then start ONE morph.
+    // Keep the prepared height during subsequent source updates, not a fresh
+    // collapse/re-expand whenever metadata invalidates a measurement.
+    val morphExpanded = expanded && preparedHeight != null
+    val transition = updateTransition(targetState = morphExpanded, label = "islandTransition")
+    val expandedHeight = preparedHeight ?: measuredHeight ?: defaultEstimatedHeightForMode(activeMode)
+    val pagerBodyHeight = {
+        fun pageHeight(index: Int): Dp {
+            val item = notifications.getOrNull(index)
+            return item?.let { measurements.heights[expandedLayoutKey(it, environment)]
+                ?: measurements.heights.entries.firstOrNull { cached ->
+                    cached.key.source == it.key && cached.key.environment == environment
+                }?.value }
+                ?: presentationFor(item?.mode).estimatedHeight
+        }
+        val current = pager.currentPage.coerceIn(0, (notifications.size - 1).coerceAtLeast(0))
+        val fraction = pager.currentPageOffsetFraction
+        val next = (current + if (fraction >= 0f) 1 else -1)
+            .coerceIn(0, (notifications.size - 1).coerceAtLeast(0))
+        interpolatePageHeight(pageHeight(current), pageHeight(next), fraction)
+    }
+    val heightMotion = remember { Animatable(settings.height.dp, Dp.VectorConverter) }
+    // Plain layout bookkeeping, not snapshot state: no backwards composition write.
+    val lastDrawnHeight = remember { floatArrayOf(settings.height) }
+    val heightWasExpanded = remember { booleanArrayOf(false) }
+    LaunchedEffect(morphExpanded, expandedHeight, expandedContentTopPadding, settings.height, isMinimalIdle) {
+        if (!morphExpanded && heightWasExpanded[0]) {
+            heightMotion.snapTo(lastDrawnHeight[0].dp)
+        }
+        heightWasExpanded[0] = morphExpanded
+        heightMotion.animateTo(
+            if (morphExpanded) expandedHeight + expandedContentTopPadding else settings.height.dp,
+            if (morphExpanded) heightExpandSpec else heightCollapseSpec)
+    }
+    val isTransitionSettled = !transition.isRunning && !heightMotion.isRunning &&
+        transition.currentState == transition.targetState
+    val currentOnCollapseFinished by rememberUpdatedState(onCollapseAnimationFinished)
+    val currentOnCompactFinished by rememberUpdatedState(onCompactAnimationFinished)
+    LaunchedEffect(expanded, isTransitionSettled) {
+        if (!expanded && isTransitionSettled) {
+            currentOnCollapseFinished()
+            currentOnCompactFinished()
+        }
+    }
     val isIdleHiding = settings.hideWhenIdle && notifications.isEmpty()
 
     var isAutoHidden by remember { mutableStateOf(false) }
@@ -303,13 +354,6 @@ fun IslandOverlayView(
     ) {
         if (it) expandedWidth else if (isHiding) 0.dp else settings.width.dp
     }
-    val height by transition.animateDp(
-        transitionSpec = { if (targetState) heightExpandSpec else heightCollapseSpec },
-        label = "islandHeight"
-    ) {
-        // The camera reservation is separate from the usable 84–160dp body.
-        if (it) expandedHeight + expandedContentTopPadding else if (isHiding) 0.dp else settings.height.dp
-    }
     val yOffset by transition.animateDp(
         transitionSpec = { if (targetState) sizeExpandSpec else sizeCollapseSpec },
         label = "islandYOffset"
@@ -327,7 +371,7 @@ fun IslandOverlayView(
             // to the user's setting only if the platform reports nothing.
             it -> expandedCardRadius
             isHiding -> 0.dp
-            settings.matchDisplayCorners && displayCornerRadius != null -> displayCornerRadius
+            !isMinimalIdle && settings.matchDisplayCorners && displayCornerRadius != null -> displayCornerRadius
             else -> settings.cornerRadius.dp
         }
     }
@@ -369,38 +413,21 @@ fun IslandOverlayView(
 
     // Reads happen in measurement/layers, not the root composition on every frame.
     val safeWidth = { width.coerceAtLeast(0.dp) }
-    val safeHeight = { height.coerceAtLeast(0.dp) }
+    val safeHeight = {
+        // Once expanded, the pager owns its interpolated height directly. No
+        // per-frame callback, deferred measurement or second chasing spring.
+        val result = if (expanded && transition.currentState && transition.targetState && !heightMotion.isRunning)
+            pagerBodyHeight() + expandedContentTopPadding
+        else heightMotion.value.coerceAtLeast(0.dp)
+        lastDrawnHeight[0] = result.value
+        result
+    }
     val safeRadius = { radius.coerceAtLeast(0.dp) }
     val showCompactContent by remember { derivedStateOf { collapsedAlpha > 0f } }
     val showExpandedContent by remember(expanded) {
         derivedStateOf { expanded || expandedAlpha > 0.01f }
     }
 
-    // Tactile spring scale bounce animation only when user switches between active notifications
-    val switchScaleAnim = remember { androidx.compose.animation.core.Animatable(1f) }
-    var isInitialComposition by remember { mutableStateOf(true) }
-    var lastSelectedIndex by remember { mutableStateOf(selectedIndex) }
-    LaunchedEffect(selectedIndex) {
-        if (isInitialComposition) {
-            isInitialComposition = false
-            lastSelectedIndex = selectedIndex
-            return@LaunchedEffect
-        }
-        if (lastSelectedIndex != selectedIndex) {
-            lastSelectedIndex = selectedIndex
-            switchScaleAnim.animateTo(
-                targetValue = 0.92f,
-                animationSpec = tween(40, easing = FastOutSlowInEasing)
-            )
-            switchScaleAnim.animateTo(
-                targetValue = 1f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = 650f
-                )
-            )
-        }
-    }
 
     // Dual Pill (Multi-Tasking Split Island) Detection:
     // When 2 or more notifications exist (e.g. Music + Notification/Timer/Call), split into Main Pill + Secondary Bubble
@@ -422,43 +449,6 @@ fun IslandOverlayView(
     val secondaryIsPill = compactShapes.singleOrNull() == CompactNotificationShape.MiniPill
     val showTertiaryPill = compactShapes.size == 2 && tertiaryNotification != null
 
-    val secondaryAlpha by animateFloatAsState(
-        targetValue = if (isSplitMode && !isHiding) 1f else 0f,
-        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-        label = "secondaryAlpha"
-    )
-    val secondaryScale by animateFloatAsState(
-        targetValue = if (isSplitMode && !isHiding) 1f else 0.3f,
-        animationSpec = spring(dampingRatio = 0.68f, stiffness = 480f),
-        label = "secondaryScale"
-    )
-    val secondaryBubbleWidth by animateDpAsState(
-        targetValue = if (secondaryIsPill) miniPillWidth else circleSize,
-        animationSpec = spring(dampingRatio = 0.75f, stiffness = 520f),
-        label = "secondaryBubbleWidth"
-    )
-    val secondaryPillProgress = (miniPillWidth - circleSize).value.let { widthDelta ->
-        if (widthDelta == 0f) {
-            if (secondaryIsPill) 1f else 0f
-        } else {
-            ((secondaryBubbleWidth - circleSize).value / widthDelta).coerceIn(0f, 1f)
-        }
-    }
-    val secondaryBubbleCorner by animateDpAsState(
-        targetValue = if (secondaryIsPill) settings.cornerRadius.dp else circleSize / 2f,
-        animationSpec = spring(dampingRatio = 0.75f, stiffness = 520f),
-        label = "secondaryBubbleCorner"
-    )
-    val tertiaryAlpha by animateFloatAsState(
-        targetValue = if (showTertiaryPill && !isHiding) 1f else 0f,
-        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-        label = "tertiaryAlpha"
-    )
-    val tertiaryScale by animateFloatAsState(
-        targetValue = if (showTertiaryPill && !isHiding) 1f else 0.3f,
-        animationSpec = spring(dampingRatio = 0.68f, stiffness = 480f),
-        label = "tertiaryScale"
-    )
 
     val collapsedSecondaryOffset = circleCenter - screenCenter
 
@@ -493,16 +483,28 @@ fun IslandOverlayView(
                         if (isInputActive) {
                             onReplyStateChanged(false)
                         }
-                        currentOnToggle()
+                        currentOnCollapse()
                     }
                 }
             }
+    } else if (isMinimalIdle) {
+        // The camera itself has no useful touch area. Include the small window's
+        // padding as a tap target without drawing a larger island.
+        modifier.fillMaxSize().pointerInput(isMinimalIdle) {
+            detectTapGestures { currentOnIdleTap() }
+        }
     } else {
         modifier.fillMaxSize()
     }
 
     Box(
-        modifier = outerModifier.onSizeChanged { windowWidthPx = it.width },
+        modifier = outerModifier.onSizeChanged { windowWidthPx = it.width }.semantics {
+            if (notifications.isEmpty()) {
+                contentDescription = if (isMinimalIdle) "Reveal idle island" else "Hide idle island"
+                role = Role.Button
+                onClick { currentOnIdleTap(); true }
+            }
+        },
         contentAlignment = Alignment.TopCenter
     ) {
 
@@ -563,6 +565,7 @@ fun IslandOverlayView(
         // Inner Box: The actual visible pill container, managing the black background shape and size animations
         Box(
             modifier = Modifier
+                .testTag("islandSurface")
                 .layout { measurable, constraints ->
                     val w = safeWidth().roundToPx().coerceIn(constraints.minWidth, constraints.maxWidth)
                     val h = safeHeight().roundToPx().coerceIn(constraints.minHeight, constraints.maxHeight)
@@ -575,8 +578,8 @@ fun IslandOverlayView(
                         displayMetrics.widthPixels, windowWidthPx, windowLocation[0]
                      )
                     translationY = yOffset.toPx() - windowLocation[1]
-                    scaleX = switchScaleAnim.value
-                    scaleY = switchScaleAnim.value
+                    scaleX = 1f
+                    scaleY = 1f
                     shape = islandCornerShape(safeRadius(), squareTop)
                     clip = true
                     shadowElevation = if (settings.enableShadow && !isHiding) {
@@ -589,13 +592,13 @@ fun IslandOverlayView(
                 // it the shape dissolves into a black wallpaper. Sampled value,
                 // see ISLAND_BORDER_COLOR.
                 .border(ISLAND_BORDER_WIDTH, ISLAND_BORDER_COLOR, mainShape)
-                .pointerInput(displayMetrics.density, isInputActive) {
+                .pointerInput(displayMetrics.density, isInputActive, isMinimalIdle) {
                     // coroutineScope gives the gesture loop a CoroutineScope whose job
                     // is a child of this pointerInput block, so the hold-detection job
                     // below is cancelled when the block is cancelled. AwaitPointerEventScope
                     // is not itself a CoroutineScope, which is why this wrapper is needed.
                     coroutineScope {
-                    if (isInputActive) return@coroutineScope
+                    if (isInputActive || isMinimalIdle) return@coroutineScope
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         userInteractionTimestamp = System.currentTimeMillis()
@@ -618,7 +621,7 @@ fun IslandOverlayView(
                             // gesture feel responsive rather than laggy.
                             if (!wasExpandedAtStart && currentNotifications.isNotEmpty()) {
                                 triggerHapticVibration(context, EXPAND_HAPTIC_DURATION_MS, EXPAND_HAPTIC_AMPLITUDE)
-                                currentOnToggle()
+                                currentOnExpand()
                             }
                         }
 
@@ -808,8 +811,7 @@ fun IslandOverlayView(
                                                     if (currentNotification != null) {
                                                         currentOnOpenNotification(currentNotification)
                                                     } else {
-                                                        DotIslandRepositories.notificationRepository(context)
-                                                            .resetTimer()
+                                                        currentOnIdleTap()
                                                     }
                                                 }
                                             }
@@ -962,11 +964,12 @@ fun IslandOverlayView(
                         .wrapContentHeight(unbounded = true)
                         .graphicsLayer {
                             alpha = expandedAlpha
-                            // Camera-aware music placement uses exact screen-space
+                            // Camera-aware headers use exact screen-space
                             // exclusions; don't independently slide/scale its text.
-                            scaleX = if (activeMode == IslandMode.Music) 1f else contentScale
-                            scaleY = if (activeMode == IslandMode.Music) 1f else contentScale
-                            translationY = if (activeMode == IslandMode.Music) 0f else contentSlideY.toPx()
+                            val cameraAnchored = activeMode == IslandMode.Music || activeMode == IslandMode.LiveActivity
+                            scaleX = if (cameraAnchored) 1f else contentScale
+                            scaleY = if (cameraAnchored) 1f else contentScale
+                            translationY = if (cameraAnchored) 0f else contentSlideY.toPx()
                         }
                 ) {
                     IslandExpandedContent(
@@ -974,7 +977,7 @@ fun IslandOverlayView(
                         selectedIndex = selectedIndex,
                         onPageSelected = onPageSelected,
                         onOpenNotification = onOpenNotification,
-                        onCollapse = onToggleExpanded,
+                        onCollapse = { currentOnCollapse() },
                         statusBarHeight = statusBarHeight.dp,
                         // Each mode owns its natural height and presentation budget.
                         // Music permits 180dp for equal insets; other modes use 84–160dp.
@@ -982,27 +985,11 @@ fun IslandOverlayView(
                         // IslandExpandedContent makes the page content scrollable when
                         // it exceeds the ceiling.
                         //
-                        // Measurements are DEFERRRED while the expand/collapse
-                        // transition is in flight. `height` below is a spring
-                        // animating toward `expandedHeight`, so writing to it from
-                        // here re-aims that spring mid-animation: the card would
-                        // visibly resize while it was growing, which reads as a pop.
-                        // The registry estimate is used for the animation and the
-                        // real measurement is applied once the transition settles.
-                        onHeightMeasured = { measured ->
-                            val clamped = presentationFor(activeMode).clampHeight(measured)
-                            if (isTransitionSettled) {
-                                if (expandedHeight != clamped) {
-                                    android.util.Log.d(
-                                        TAG,
-                                        "expanded height ${expandedHeight.value} -> ${clamped.value}"
-                                    )
-                                    expandedHeight = clamped
-                                }
-                            } else {
-                                pendingMeasuredHeight = clamped
-                            }
-                        },
+                        pager = pager,
+                        measurements = measurements,
+                        environment = environment,
+                        bodyHeight = pagerBodyHeight,
+                        animateSelection = morphExpanded,
                         settings = settings,
                         cameraBounds = cameraBounds,
                         cardScreenTop = expandedTopOffset,
@@ -1024,10 +1011,9 @@ fun IslandOverlayView(
         // expanded card, which is a large part of why the expansion read as a
         // separate popup panel sitting over the pill rather than the pill becoming
         // the card. See REDESIGN.md section 4.1.
-        val collapsedBubbleAlpha = { secondaryAlpha * (1f - expandedAlpha) }
-        val showSecondary by remember { derivedStateOf { collapsedBubbleAlpha() > 0.01f } }
-        if (!settings.enableNotchMode && showSecondary && secondaryNotification != null) {
-            Box(
+        if (!settings.enableNotchMode && secondaryNotification != null) {
+            CompanionIsland(secondaryNotification, secondaryIsPill, isSplitMode && !isHiding,
+                expandedAlpha = { expandedAlpha }, settings = settings,
                 modifier = Modifier
                     .absoluteOffset {
                         IntOffset(
@@ -1035,80 +1021,28 @@ fun IslandOverlayView(
                             0
                         )
                     }
-                    .width(secondaryBubbleWidth)
-                    .height(circleSize)
                     .graphicsLayer {
                         hostView.getLocationOnScreen(windowLocation)
                         translationX = calculateWindowCenterCorrection(
                             displayMetrics.widthPixels, windowWidthPx, windowLocation[0]
                         )
                         translationY = (if (settings.enableNotchMode) 0f else settings.yOffset.dp.toPx()) - windowLocation[1]
-                        alpha = collapsedBubbleAlpha()
-                        scaleX = secondaryScale * switchScaleAnim.value
-                        scaleY = secondaryScale * switchScaleAnim.value
-                    }
-                    .then(
-                        if (settings.enableShadow && settings.shadowElevation > 0f) {
-                            Modifier.shadow(
-                                elevation = (settings.shadowElevation * 0.85f).dp,
-                                shape = RoundedCornerShape(secondaryBubbleCorner),
-                                clip = false,
-                                ambientColor = Color.Black,
-                                spotColor = Color.Black
-                            )
-                        } else Modifier
-                    )
-                    .clip(RoundedCornerShape(secondaryBubbleCorner))
-                    .background(pillBackgroundColor.copy(alpha = settings.opacity))
-                    .border(ISLAND_BORDER_WIDTH, ISLAND_BORDER_COLOR, RoundedCornerShape(secondaryBubbleCorner))
-                    .combinedClickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = { if (secondaryIndex >= 0) currentOnPageSelected(secondaryIndex) },
-                        onLongClick = {
-                            if (secondaryIndex >= 0) {
-                                currentOnPageSelected(secondaryIndex)
-                                if (!currentExpanded) {
-                                    triggerHapticVibration(context, EXPAND_HAPTIC_DURATION_MS, EXPAND_HAPTIC_AMPLITUDE)
-                                    currentOnToggle()
-                                }
-                            }
+                    },
+                onSelect = { if (secondaryIndex >= 0) currentOnPageSelected(secondaryIndex) },
+                onHold = {
+                    if (secondaryIndex >= 0) {
+                        currentOnPageSelected(secondaryIndex)
+                        if (!currentExpanded) {
+                            triggerHapticVibration(context, EXPAND_HAPTIC_DURATION_MS, EXPAND_HAPTIC_AMPLITUDE)
+                            currentOnExpand()
                         }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = 1f - secondaryPillProgress },
-                    contentAlignment = Alignment.Center
-                ) {
-                    SecondaryBubbleContent(
-                        notification = secondaryNotification,
-                        settings = settings
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .requiredWidth(miniPillWidth)
-                        .height(circleSize)
-                        .graphicsLayer { alpha = secondaryPillProgress },
-                    contentAlignment = Alignment.Center
-                ) {
-                    IslandCollapsedContent(
-                        mode = secondaryNotification.mode,
-                        notification = secondaryNotification,
-                        collapsedAlpha = 1f,
-                        settings = settings
-                    )
-                }
-            }
+                    }
+                })
         }
 
-        val collapsedTertiaryAlpha = { tertiaryAlpha * (1f - expandedAlpha) }
-        val showTertiary by remember { derivedStateOf { collapsedTertiaryAlpha() > 0.01f } }
-        if (!settings.enableNotchMode && showTertiary && tertiaryNotification != null) {
-            Box(
+        if (!settings.enableNotchMode && tertiaryNotification != null) {
+            CompanionIsland(tertiaryNotification, pill = true, visible = showTertiaryPill && !isHiding,
+                expandedAlpha = { expandedAlpha }, settings = settings,
                 modifier = Modifier
                     .absoluteOffset {
                         // Screen-relative; converted by the graphics layer below.
@@ -1117,64 +1051,25 @@ fun IslandOverlayView(
                             0
                         )
                     }
-                    .width(miniPillWidth)
-                    .height(circleSize)
                     .graphicsLayer {
                         hostView.getLocationOnScreen(windowLocation)
                         translationX = calculateWindowCenterCorrection(
                             displayMetrics.widthPixels, windowWidthPx, windowLocation[0]
                         )
                         translationY = (if (settings.enableNotchMode) 0f else settings.yOffset.dp.toPx()) - windowLocation[1]
-                        alpha = collapsedTertiaryAlpha()
-                        scaleX = tertiaryScale * switchScaleAnim.value
-                        scaleY = tertiaryScale * switchScaleAnim.value
-                    }
-                    .then(
-                        if (settings.enableShadow && settings.shadowElevation > 0f) {
-                            Modifier.shadow(
-                                elevation = (settings.shadowElevation * 0.85f).dp,
-                                shape = RoundedCornerShape(settings.cornerRadius.dp),
-                                clip = false,
-                                ambientColor = Color.Black,
-                                spotColor = Color.Black
-                            )
-                        } else Modifier
-                    )
-                    .clip(RoundedCornerShape(settings.cornerRadius.dp))
-                    .background(pillBackgroundColor.copy(alpha = settings.opacity))
-                    .combinedClickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = { if (tertiaryIndex >= 0) currentOnPageSelected(tertiaryIndex) },
-                        onLongClick = {
-                            if (tertiaryIndex >= 0) {
-                                currentOnPageSelected(tertiaryIndex)
-                                if (!currentExpanded) {
-                                    triggerHapticVibration(context, EXPAND_HAPTIC_DURATION_MS, EXPAND_HAPTIC_AMPLITUDE)
-                                    currentOnToggle()
-                                }
-                            }
+                    },
+                onSelect = { if (tertiaryIndex >= 0) currentOnPageSelected(tertiaryIndex) },
+                onHold = {
+                    if (tertiaryIndex >= 0) {
+                        currentOnPageSelected(tertiaryIndex)
+                        if (!currentExpanded) {
+                            triggerHapticVibration(context, EXPAND_HAPTIC_DURATION_MS, EXPAND_HAPTIC_AMPLITUDE)
+                            currentOnExpand()
                         }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                IslandCollapsedContent(
-                    mode = tertiaryNotification.mode,
-                    notification = tertiaryNotification,
-                    collapsedAlpha = 1f,
-                    settings = settings
-                )
-            }
+                    }
+                })
         }
     }
-}
-
-@Composable
-private fun SecondaryBubbleContent(
-    notification: IslandNotification,
-    settings: DotIslandSettings
-) {
-    ActivityGlyph(notification, Modifier.size(20.dp))
 }
 
 // Animation specs
@@ -1329,7 +1224,7 @@ internal fun calculateCollapsedLayout(
 private const val SWIPE_THRESHOLD_DP = 35f
 private const val PILL_SWIPE_THRESHOLD_DP = 16f
 private const val COMPACT_INDICATOR_GAP_DP = 8f
-private const val HOLD_GESTURE_THRESHOLD_MS = 300L
+internal const val HOLD_GESTURE_THRESHOLD_MS = 300L
 
 internal const val EXPAND_HAPTIC_DURATION_MS = 12L
 internal const val EXPAND_HAPTIC_AMPLITUDE = 64

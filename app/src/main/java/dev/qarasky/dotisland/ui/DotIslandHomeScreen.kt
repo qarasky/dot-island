@@ -11,8 +11,12 @@ import android.content.Intent
 import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,8 +60,41 @@ fun DotIslandHomeScreen(
     val scope = rememberCoroutineScope()
     val settings by repository.settings.collectAsStateWithLifecycle(DotIslandSettings.Default)
     val activities by notificationRepository.notifications.collectAsStateWithLifecycle()
+    var idlePreviewRevealed by remember { mutableStateOf(false) }
+    LaunchedEffect(activities.isEmpty(), idlePreviewRevealed) {
+        if (activities.isNotEmpty()) idlePreviewRevealed = false
+        else if (idlePreviewRevealed) {
+            delay(5000)
+            idlePreviewRevealed = false
+        }
+    }
     var access by remember { mutableStateOf(readAccess(context)) }
-    var connected by remember { mutableStateOf(false) }
+    val overlayConnected by DotIslandOverlayService.systemConnection.collectAsStateWithLifecycle(
+        minActiveState = Lifecycle.State.STARTED)
+    val listenerConnected by DotIslandNotificationListenerService.systemConnection.collectAsStateWithLifecycle(
+        minActiveState = Lifecycle.State.STARTED)
+    val connected = overlayConnected && listenerConnected
+    LaunchedEffect(overlayConnected, listenerConnected) {
+        android.util.Log.i("DotIslandConnections", "UI overlay=$overlayConnected notifications=$listenerConnected")
+    }
+    var connectionWaitExpired by remember { mutableStateOf(false) }
+    DisposableEffect(context) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) { access = readAccess(context) }
+        }
+        context.contentResolver.registerContentObserver(
+            Settings.Secure.getUriFor(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES), false, observer)
+        context.contentResolver.registerContentObserver(
+            Settings.Secure.getUriFor("enabled_notification_listeners"), false, observer)
+        onDispose { context.contentResolver.unregisterContentObserver(observer) }
+    }
+    LaunchedEffect(settings.enabled, access.accessibility, access.notifications, connected) {
+        connectionWaitExpired = false
+        if (settings.enabled && access.accessibility && access.notifications && !connected) {
+            delay(15000)
+            connectionWaitExpired = true
+        }
+    }
     DisposableEffect(owner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -68,18 +105,10 @@ fun DotIslandHomeScreen(
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(owner) {
-        // Visible screen only; service status is not confused with permission grant.
-        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            while (true) {
-                connected = DotIslandOverlayService.isSystemConnected && DotIslandNotificationListenerService.isSystemConnected
-                delay(1000)
-            }
-        }
-    }
     val status = when {
         !access.accessibility || !access.notifications -> "SETUP REQUIRED"
         !settings.enabled -> "OFF"
+        !connected && connectionWaitExpired -> if (!overlayConnected) "OVERLAY DISCONNECTED" else "NOTIFICATIONS DISCONNECTED"
         !connected -> "CONNECTING"
         else -> "ACTIVE"
     }
@@ -100,21 +129,43 @@ fun DotIslandHomeScreen(
                         horizontalArrangement = Arrangement.SpaceBetween) {
                         Column(Modifier.weight(1f)) {
                             Text("Your island", fontSize = 21.sp, fontWeight = FontWeight.Medium)
-                            Text("Tap to open · Hold to expand", color = Color(0xFF8E8E93), fontSize = 12.sp)
+                            Text(if (activities.isEmpty()) "Tap camera ring to reveal idle"
+                                else "Tap to open · Hold to expand", color = Color(0xFF8E8E93), fontSize = 12.sp)
                         }
                         Switch(settings.enabled, onCheckedChange = {
                             scope.launch { repository.setEnabled(it) }
                             if (it) SystemServiceRecovery.requestRecovery(context)
                         })
                     }
+                    if (settings.enabled && access.accessibility && access.notifications && !connected) {
+                        Text(if (!overlayConnected) "Waiting for Android to reconnect the camera overlay."
+                            else "Waiting for Android to reconnect notification access.",
+                            color = Color(0xFF8E8E93), fontSize = 12.sp)
+                        TextButton(onClick = { SystemServiceRecovery.requestRecovery(context, retry = true) }) {
+                            Text("Retry connection")
+                        }
+                        if (connectionWaitExpired && !overlayConnected) {
+                            Text("Android has not rebound the service. Re-enable only Dot Island in Accessibility.",
+                                color = Color(0xFF8E8E93), fontSize = 12.sp)
+                            RepairButton("Open accessibility", Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        }
+                    }
                     // Same compact renderer and activity snapshot as the real overlay;
                     // preview never inserts demo notifications or changes playback.
                     Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
-                        Surface(shape = RoundedCornerShape(50), color = Color.Black, border = BorderStroke(1.dp, ISLAND_BORDER_COLOR)) {
-                            val active = activities.firstOrNull()
+                        val active = activities.firstOrNull()
+                        val previewSettings = remember(context, settings, active == null, idlePreviewRevealed) {
+                            if (active == null && !idlePreviewRevealed)
+                                dev.qarasky.dotisland.util.idleIslandSettings(context, settings)
+                            else settings
+                        }
+                        val previewTap = if (active == null) Modifier.clickable {
+                            idlePreviewRevealed = !idlePreviewRevealed
+                        } else Modifier
+                        Surface(modifier = previewTap, shape = RoundedCornerShape(50), color = Color.Black, border = BorderStroke(1.dp, ISLAND_BORDER_COLOR)) {
                             IslandCollapsedContent(active?.mode ?: dev.qarasky.dotisland.model.IslandMode.Empty,
-                                active, 1f, settings, Modifier.width(settings.width.dp).height(settings.height.dp),
-                                showIdleIndicator = active == null)
+                                active, 1f, previewSettings, Modifier.width(previewSettings.width.dp).height(previewSettings.height.dp),
+                                showIdleIndicator = active == null && idlePreviewRevealed)
                         }
                     }
                 }

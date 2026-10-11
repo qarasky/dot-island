@@ -47,6 +47,68 @@ class IslandViewModelTest {
         vm.expand()
         assertFalse(vm.expanded.value)
     }
+    @Test fun rapidReversalsAreNotDroppedByTimeGate() = runTest {
+        val repo = DotIslandNotificationRepository()
+        val vm = viewModel(repo)
+        repo.postNotification(music())
+        runCurrent()
+        repeat(5) {
+            vm.toggleExpanded()
+            assertTrue(vm.expanded.value)
+            vm.toggleExpanded()
+            assertFalse(vm.expanded.value)
+        }
+        vm.expand()
+        vm.expand()
+        assertTrue(vm.expanded.value)
+        vm.collapse()
+        vm.collapse()
+        assertFalse(vm.expanded.value)
+    }
+    @Test fun idleStartsSmallAndTapRevealsOnlyTemporarily() = runTest {
+        val vm = viewModel(DotIslandNotificationRepository())
+        runCurrent()
+        assertFalse(vm.idleRevealed.value)
+        vm.toggleIdleReveal()
+        runCurrent()
+        assertTrue(vm.idleRevealed.value)
+        assertFalse(vm.expanded.value)
+        advanceTimeBy(IslandViewModel.IDLE_REVEAL_DELAY_MS)
+        runCurrent()
+        assertFalse(vm.idleRevealed.value)
+    }
+    @Test fun tappingRevealedIdleTucksItAwayAndCancelsOldTimer() = runTest {
+        val vm = viewModel(DotIslandNotificationRepository())
+        runCurrent()
+        vm.toggleIdleReveal()
+        runCurrent()
+        advanceTimeBy(1000)
+        vm.toggleIdleReveal()
+        assertFalse(vm.idleRevealed.value)
+        vm.toggleIdleReveal()
+        runCurrent()
+        advanceTimeBy(4000)
+        runCurrent()
+        assertTrue(vm.idleRevealed.value)
+        advanceTimeBy(1000)
+        runCurrent()
+        assertFalse(vm.idleRevealed.value)
+    }
+    @Test fun activityArrivalClearsIdleRevealAndReturningToIdleStartsSmall() = runTest {
+        val repo = DotIslandNotificationRepository()
+        val vm = viewModel(repo)
+        runCurrent()
+        vm.toggleIdleReveal()
+        repo.postNotification(music())
+        runCurrent()
+        assertFalse(vm.idleRevealed.value)
+        vm.toggleIdleReveal()
+        assertFalse(vm.idleRevealed.value)
+        repo.removeAllNotifications()
+        runCurrent()
+        assertFalse(vm.idleRevealed.value)
+        assertFalse(vm.expanded.value)
+    }
     @Test fun musicStaysVisibleInsideItsOwnApp() = runTest {
         val repo = DotIslandNotificationRepository()
         val vm = viewModel(repo)

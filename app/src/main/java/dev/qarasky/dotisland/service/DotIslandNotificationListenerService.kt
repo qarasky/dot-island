@@ -37,6 +37,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
+import android.util.LruCache
+import dev.qarasky.dotisland.util.NotificationWorkVersions
 
 /** Read-only system notifications. No cancellation, custom sound, history or cooldown. */
 @AndroidEntryPoint
@@ -67,11 +69,15 @@ class DotIslandNotificationListenerService : NotificationListenerService() {
         }
     }
     private var spotifyRemovalJob: Job? = null
+    private val pendingIngest = NotificationWorkVersions()
+    private data class SourceIdentity(val label: String, val icon: Bitmap?)
+    private val sourceIdentities = LruCache<String, SourceIdentity>(24)
 
     override fun onCreate() {
         super.onCreate()
         scope.launch {
             liveUpdateSources.allowedPackages.collect { allowed ->
+                pendingIngest.clear()
                 allowedLiveUpdatePackages = allowed
                 notificationRepository.notifications.value
                     .filter { it.mode == IslandMode.LiveActivity && it.packageName !in allowed }
@@ -86,7 +92,10 @@ class DotIslandNotificationListenerService : NotificationListenerService() {
         scope.launch {
             repository.settings.collect {
                 enabled = it.enabled
-                if (!enabled) notificationRepository.removeAllNotifications()
+                if (!enabled) {
+                    pendingIngest.clear()
+                    notificationRepository.removeAllNotifications()
+                }
                 else if (isSystemConnected) restoreActivities()
             }
         }
@@ -116,7 +125,7 @@ class DotIslandNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
-        isSystemConnected = true
+        connectionState.connect(this)
         runCatchingLogged(TAG, "Session listener registration failed") {
             manager?.addOnActiveSessionsChangedListener(sessionsChanged, ComponentName(this, javaClass), handler)
         }
@@ -186,32 +195,46 @@ class DotIslandNotificationListenerService : NotificationListenerService() {
             progressStyle = n.extras.getString(Notification.EXTRA_TEMPLATE) == "android.app.Notification\$ProgressStyle",
             promotedOngoing = Build.VERSION.SDK_INT >= 36 && n.flags and Notification.FLAG_PROMOTED_ONGOING != 0)
         if (mode == IslandMode.Empty) {
+            pendingIngest.remove(sbn.key)
             notificationRepository.removeNotification(sbn.key)
             return
         }
         if (mode == IslandMode.Music) {
             spotifyNotification = sbn
             refreshSessions()
-            publishSpotify()
             return
         }
         val actions = n.actions.orEmpty().map { IslandNotificationAction(it.title.toString(), it.actionIntent) }
-        val appName = runCatching {
-            packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString()
-        }.getOrDefault(sbn.packageName)
-        val sourceIcon = if (mode == IslandMode.LiveActivity) {
-            runCatching { n.smallIcon?.loadDrawable(this)?.toBitmap(96, 96) }.getOrNull()
-        } else null
+        val generation = pendingIngest.begin(sbn.key, mode)
+        scope.launch {
+        // Package/resource I/O and rasterization must not compete with morph frames.
+        val (identity, sourceIcon, largeIcon) = withContext(Dispatchers.IO) {
+            val identity = sourceIdentities.get(sbn.packageName) ?: SourceIdentity(
+                runCatching {
+                    packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString()
+                }.getOrDefault(sbn.packageName),
+                runCatching { packageManager.getApplicationIcon(sbn.packageName).toBitmap(96, 96) }.getOrNull()
+            ).also { sourceIdentities.put(sbn.packageName, it) }
+            val icon = if (mode == IslandMode.LiveActivity)
+                runCatching { n.smallIcon?.loadDrawable(this@DotIslandNotificationListenerService)?.toBitmap(96, 96) }.getOrNull()
+                else null
+            Triple(identity, icon,
+                runCatching { n.getLargeIcon()?.loadDrawable(this@DotIslandNotificationListenerService)?.toBitmap(128, 128) }.getOrNull())
+        }
+        if (!enabled || !isSystemConnected || !pendingIngest.isCurrent(sbn.key, mode, generation) ||
+            (mode == IslandMode.LiveActivity && sbn.packageName !in allowedLiveUpdatePackages.orEmpty())) return@launch
+        pendingIngest.remove(sbn.key)
         notificationRepository.postNotification(IslandNotification(
-            key = sbn.key, packageName = sbn.packageName, appName = appName,
+            key = sbn.key, packageName = sbn.packageName, appName = identity.label,
             title = title, text = text, timeMillis = n.`when`.takeIf { it > 0 } ?: sbn.postTime,
-            icon = sourceIcon ?: runCatching { packageManager.getApplicationIcon(sbn.packageName).toBitmap(96, 96) }.getOrNull(),
-            largeIcon = runCatching { n.getLargeIcon()?.loadDrawable(this)?.toBitmap(128, 128) }.getOrNull(),
+            icon = sourceIcon ?: identity.icon,
+            largeIcon = largeIcon,
             actionIntents = actions, category = n.category, mode = mode, contentIntent = n.contentIntent,
             progress = n.extras.getInt(Notification.EXTRA_PROGRESS), progressMax = max,
             progressIndeterminate = n.extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE),
             liveUpdateOngoing = n.flags and Notification.FLAG_ONGOING_EVENT != 0
         ))
+        }
     }
 
     private fun refreshSessions() {
@@ -266,6 +289,8 @@ class DotIslandNotificationListenerService : NotificationListenerService() {
             timeMillis = spotifyNotification?.postTime ?: System.currentTimeMillis(),
             largeIcon = artwork, mediaToken = c.sessionToken, mediaIsPlaying = isSpotifyPlayingState(state?.state),
             mediaPositionMs = state.position, mediaDurationMs = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION),
+            mediaPositionUpdatedAtMs = state.lastPositionUpdateTime,
+            mediaPlaybackSpeed = if (state.state == PlaybackState.STATE_PLAYING) state.playbackSpeed else 0f,
             mode = IslandMode.Music, contentIntent = n?.contentIntent,
             actionIntents = n?.actions.orEmpty().map { IslandNotificationAction(it.title.toString(), it.actionIntent) }
         ))
@@ -287,13 +312,15 @@ class DotIslandNotificationListenerService : NotificationListenerService() {
     }
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         scope.launch {
+            pendingIngest.remove(sbn.key)
             if (sbn.key == spotifyNotification?.key) { spotifyNotification = null; refreshSessions() }
             else notificationRepository.removeNotification(sbn.key)
         }
     }
     override fun onNotificationRemoved(sbn: StatusBarNotification, rankingMap: RankingMap?, reason: Int) = onNotificationRemoved(sbn)
     override fun onListenerDisconnected() {
-        isSystemConnected = false
+        pendingIngest.clear()
+        connectionState.disconnect(this)
         detachController()
         runCatching { manager?.removeOnActiveSessionsChangedListener(sessionsChanged) }
         notificationRepository.removeAllNotifications()
@@ -302,15 +329,16 @@ class DotIslandNotificationListenerService : NotificationListenerService() {
     }
     private fun detachController() { controller?.unregisterCallback(mediaCallback); controller = null }
     override fun onDestroy() {
-        isSystemConnected = false
+        connectionState.disconnect(this)
         detachController()
         runCatching { manager?.removeOnActiveSessionsChangedListener(sessionsChanged) }
         scope.cancel()
         super.onDestroy()
     }
     companion object {
-        @Volatile var isSystemConnected = false
-            private set
+        private val connectionState = dev.qarasky.dotisland.util.SystemConnectionState()
+        val systemConnection = connectionState.state
+        val isSystemConnected: Boolean get() = systemConnection.value
         private const val TAG = "IslandActivities"
         private const val SPOTIFY_KEY = "spotify_session"
         private const val EXPIRY_POLL_MS = 15_000L

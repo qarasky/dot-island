@@ -30,7 +30,9 @@ data class IslandNotification(
     val mode: IslandMode = IslandMode.Empty,
     val contentIntent: PendingIntent? = null,
     val progressIndeterminate: Boolean = false,
-    val liveUpdateOngoing: Boolean = false
+    val liveUpdateOngoing: Boolean = false,
+    val mediaPositionUpdatedAtMs: Long? = null,
+    val mediaPlaybackSpeed: Float = 1f
 ) {
     // Derived: no need to store separately
     val actions: List<String>

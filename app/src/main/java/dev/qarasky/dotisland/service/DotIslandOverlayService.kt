@@ -71,7 +71,11 @@ class DotIslandOverlayService : AccessibilityService() {
     private var foregroundStarted = false
     @Volatile private var destroyed = false
     private var isWindowExpanded: Boolean = false
+    private var hasSystemConnection = false
     private val expandedWindowReady = MutableStateFlow(false)
+    private val idleWindowReady = MutableStateFlow(false)
+    private var idleWindowReserved = false
+    private var compactEnvelope: CollapsedWindowGeometry? = null
     private var lastParams: WindowManager.LayoutParams? = null
     private val overlayRefreshRate by lazy {
         val display = getSystemService(android.hardware.display.DisplayManager::class.java)
@@ -106,6 +110,7 @@ class DotIslandOverlayService : AccessibilityService() {
                         )
                     }
                     Intent.ACTION_SCREEN_OFF -> {
+                        viewModel.hideIdle()
                         overlayOwners.pause()
                         isLockScreenActive = true
                         updateWindowLayoutParams(
@@ -269,11 +274,24 @@ class DotIslandOverlayService : AccessibilityService() {
                 }
             }
         }
+        serviceScope.launch {
+            viewModel.idleRevealed.collect { revealed ->
+                if (revealed && !destroyed && viewModel.settings.value.enabled) {
+                    idleWindowReserved = true
+                    idleWindowReady.value = false
+                    updateWindowLayoutParams(isWindowExpanded, viewModel.settings.value)
+                    updateIdleWindowReadiness()
+                }
+                // Shrink only after Compose has finished the compact return morph.
+            }
+        }
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        isSystemConnected = true
+        hasSystemConnection = true
+        connectionState.connect(this)
+        android.util.Log.i(TAG, "Overlay connected instance=${System.identityHashCode(this)}")
         if (destroyed || !::viewModel.isInitialized) return
         serviceScope.launch {
             runSuspendCatchingLogged(TAG, "Service reconnect failed") {
@@ -288,7 +306,9 @@ class DotIslandOverlayService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
-        isSystemConnected = false
+        hasSystemConnection = false
+        connectionState.disconnect(this)
+        android.util.Log.i(TAG, "Overlay unbound instance=${System.identityHashCode(this)}")
         // Return true so Android system knows to re-bind the accessibility service automatically
         return true
     }
@@ -309,7 +329,9 @@ class DotIslandOverlayService : AccessibilityService() {
     override fun onDestroy() {
         if (destroyed) return
         destroyed = true
-        isSystemConnected = false
+        hasSystemConnection = false
+        connectionState.disconnect(this)
+        android.util.Log.i(TAG, "Overlay destroyed instance=${System.identityHashCode(this)}")
         serviceScope.cancel()
 
         if (screenStateReceiverRegistered) {
@@ -328,13 +350,15 @@ class DotIslandOverlayService : AccessibilityService() {
     }
 
     private fun startOverlaySession(settings: DotIslandSettings) {
-        if (destroyed || !::windowManager.isInitialized || !::viewModel.isInitialized) return
+        // onCreate precedes AccessibilityService's connection/token initialization.
+        if (destroyed || !hasSystemConnection || !::windowManager.isInitialized || !::viewModel.isInitialized) return
         ensureForegroundStarted()
         ensureCollapsedWindow()
         updateWindowLayoutParams(isWindowExpanded, settings)
     }
 
     private fun stopOverlaySession() {
+        viewModel.hideIdle()
         removeCollapsedWindow()
         stopForegroundSafely()
         if (::viewModel.isInitialized) {
@@ -368,6 +392,7 @@ class DotIslandOverlayService : AccessibilityService() {
 
     private fun ensureCollapsedWindow() {
         if (destroyed ||
+            !hasSystemConnection ||
             islandView != null ||
             !::windowManager.isInitialized ||
             !::viewModel.isInitialized
@@ -386,6 +411,7 @@ class DotIslandOverlayService : AccessibilityService() {
                 isFocusableInTouchMode = true
                 setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
                 addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+                    updateIdleWindowReadiness()
                     expandedWindowReady.value = isWindowExpanded &&
                         view.width == resources.displayMetrics.widthPixels &&
                         view.height > computeCollapsedWindowGeometry(
@@ -400,6 +426,9 @@ class DotIslandOverlayService : AccessibilityService() {
                     val windowReady by expandedWindowReady.collectAsStateWithLifecycle(
                         minActiveState = Lifecycle.State.RESUMED
                     )
+                    val idleReady by idleWindowReady.collectAsStateWithLifecycle(
+                        minActiveState = Lifecycle.State.RESUMED
+                    )
                     ThemedOverlayIsland(
                         viewModel = this@DotIslandOverlayService.viewModel,
                         statusBarHeight = statusBarHeight,
@@ -410,7 +439,9 @@ class DotIslandOverlayService : AccessibilityService() {
                             viewModel.collapse()
                         },
                         isFullWidth = windowReady,
-                        onCollapseAnimationFinished = { finishWindowCollapse() }
+                        onCollapseAnimationFinished = { finishWindowCollapse() },
+                        idleWindowReady = idleReady,
+                        onCompactAnimationFinished = { finishCompactAnimation() }
                     )
                 }
             }
@@ -458,7 +489,11 @@ class DotIslandOverlayService : AccessibilityService() {
 
         // Collapsed: size the window to the pill. Expanded: span the display so
         // the card can be full-bleed and so taps outside collapse it.
-        val geometry = compactWindowGeometry(settings)
+        val targetGeometry = compactWindowGeometry(settings)
+        val geometry = if (expanded) targetGeometry else {
+            unionCollapsedWindowGeometry(listOfNotNull(compactEnvelope, targetGeometry))
+                .also { compactEnvelope = it }
+        }
 
         val h = if (expanded) WindowManager.LayoutParams.MATCH_PARENT else geometry.heightPx
         val w = if (expanded) WindowManager.LayoutParams.MATCH_PARENT else geometry.widthPx
@@ -522,6 +557,25 @@ class DotIslandOverlayService : AccessibilityService() {
         // Ignore stale completion callbacks when an expansion has superseded them.
         if (destroyed || viewModel.expanded.value || !isWindowExpanded) return
         isWindowExpanded = false
+        compactEnvelope = null
+        updateWindowLayoutParams(false, viewModel.settings.value)
+    }
+
+    private fun updateIdleWindowReadiness() {
+        val view = islandView ?: return
+        val required = computeCollapsedWindowGeometry(viewModel.settings.value, 0,
+            resources.displayMetrics.density, resources.displayMetrics.widthPixels.toFloat())
+        idleWindowReady.value = idleWindowReserved &&
+            view.width >= required.widthPx && view.height >= required.heightPx
+    }
+
+    private fun finishCompactAnimation() {
+        if (destroyed || isWindowExpanded || viewModel.expanded.value) return
+        if (!viewModel.idleRevealed.value) {
+            idleWindowReserved = false
+            idleWindowReady.value = false
+        }
+        compactEnvelope = null
         updateWindowLayoutParams(false, viewModel.settings.value)
     }
 
@@ -533,6 +587,9 @@ class DotIslandOverlayService : AccessibilityService() {
         lastParams = null
         isWindowExpanded = false
         expandedWindowReady.value = false
+        idleWindowReady.value = false
+        idleWindowReserved = false
+        compactEnvelope = null
         if (!::windowManager.isInitialized) return
         runCatchingLogged(TAG, "Failed to remove view") {
             if (view.isAttachedToWindow) {
@@ -543,6 +600,15 @@ class DotIslandOverlayService : AccessibilityService() {
 
     private fun compactWindowGeometry(settings: DotIslandSettings): CollapsedWindowGeometry {
         val list = if (::viewModel.isInitialized) viewModel.visibleNotifications.value else emptyList()
+        if (list.isEmpty()) {
+            val mini = dev.qarasky.dotisland.util.idleIslandSettings(this, settings)
+            val profiles = if (idleWindowReserved) listOf(mini, settings) else listOf(mini)
+            return unionCollapsedWindowGeometry(profiles.map { profile ->
+                computeCollapsedWindowGeometry(profile, 0, resources.displayMetrics.density,
+                    resources.displayMetrics.widthPixels.toFloat(),
+                    horizontalPaddingDp = if (profile == mini) 8f else COLLAPSED_WINDOW_PADDING_DP)
+            })
+        }
         // Keep a stable compact envelope for every possible main activity. A
         // source swap animates width/position; shrinking to the incoming source's
         // bounds immediately would clip the outgoing pill and its companion.
@@ -643,9 +709,9 @@ class DotIslandOverlayService : AccessibilityService() {
     }
 
     companion object {
-        @Volatile
-        var isSystemConnected: Boolean = false
-            private set
+        private val connectionState = dev.qarasky.dotisland.util.SystemConnectionState()
+        val systemConnection = connectionState.state
+        val isSystemConnected: Boolean get() = systemConnection.value
 
         private const val TAG = "DotIslandOverlayService"
         private const val NOTIFICATION_ID = 8105

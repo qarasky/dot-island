@@ -9,10 +9,7 @@ package dev.qarasky.dotisland.ui.expanded
 
 import android.content.Context
 import android.content.Intent
-import android.media.MediaMetadata
 import android.media.MediaRouter2
-import android.media.session.MediaController
-import android.media.session.PlaybackState
 import android.os.Build
 import android.os.SystemClock
 import android.provider.Settings
@@ -37,7 +34,6 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,7 +64,6 @@ import dev.qarasky.dotisland.ui.SquircleShape
 import dev.qarasky.dotisland.ui.DotMatrixActivity
 import androidx.compose.ui.text.font.FontFamily
 import dev.qarasky.dotisland.util.runCatchingLogged
-import dev.qarasky.dotisland.util.isSpotifyPlayingState
 
 /** Black, compact media surface; camera padding is owned by the expanded container. */
 @Composable
@@ -81,46 +76,15 @@ fun MusicExpanded(
 ) {
     val context = LocalContext.current
     val repository = remember(context) { DotIslandRepositories.notificationRepository(context) }
-    val controller = remember(notification?.mediaToken) {
-        notification?.mediaToken?.let { token ->
-            runCatchingLogged("MusicExpanded", "Failed to create MediaController") {
-                MediaController(context, token)
-            }
-        }
-    }
-    var playbackState by remember(controller) { mutableStateOf(controller?.playbackState) }
-    var metadata by remember(controller) { mutableStateOf(controller?.metadata) }
     var isPlaying by remember(notification?.key, notification?.mediaIsPlaying) {
         mutableStateOf(notification?.mediaIsPlaying == true)
     }
-    DisposableEffect(controller) {
-        if (controller == null) return@DisposableEffect onDispose {}
-        val callback = object : MediaController.Callback() {
-            override fun onPlaybackStateChanged(state: PlaybackState?) {
-                playbackState = state
-                isPlaying = isSpotifyPlayingState(state?.state)
-            }
-            override fun onMetadataChanged(value: MediaMetadata?) {
-                metadata = value
-            }
-        }
-        controller.registerCallback(callback)
-        playbackState = controller.playbackState
-        metadata = controller.metadata
-        isPlaying = isSpotifyPlayingState(playbackState?.state)
-        onDispose { controller.unregisterCallback(callback) }
-    }
-
-    val metadataArtwork = remember(metadata) {
-        metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
-            ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
-            ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
-    }
-    val artwork = notification?.largeIcon ?: metadataArtwork ?: notification?.icon
+    // The listener owns the controller/callback and publishes one shared snapshot.
+    // Opening this card must not synchronously query Binder or register a second owner.
+    val artwork = notification?.largeIcon ?: notification?.icon
     val title = notification?.title?.takeIf { it.isNotBlank() } ?: "Song"
     val artist = notification?.text?.takeIf { it.isNotBlank() } ?: notification?.appName ?: "Artist"
     val durationMs = notification?.mediaDurationMs?.takeIf { it > 0 }
-        ?: metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.takeIf { it > 0 }
 
     Column(
         modifier = Modifier.fillMaxWidth()
@@ -157,15 +121,9 @@ fun MusicExpanded(
         }
         Spacer(Modifier.height(4.dp))
         // Polling is isolated here; playback progress does not recompose artwork/controls.
-        MusicTimeline(notification, playbackState, isPlaying, durationMs) { position ->
+        MusicTimeline(notification, isPlaying, durationMs) { position ->
             repository.resetTimer()
-            if (controller != null) {
-                runCatchingLogged("MusicExpanded", "Failed to seek") {
-                    controller.transportControls.seekTo(position)
-                }
-            } else {
-                notification?.packageName?.let { repository.sendCommand(DotIslandCommand.SeekTo(it, position)) }
-            }
+            notification?.packageName?.let { repository.sendCommand(DotIslandCommand.SeekTo(it, position)) }
         }
         Box(Modifier.fillMaxWidth().height(48.dp)) {
             Row(
@@ -175,30 +133,24 @@ fun MusicExpanded(
             ) {
                 MediaButton(Icons.Rounded.FastRewind, "Previous track", 36.dp) {
                     repository.resetTimer()
-                    if (controller != null) {
-                        runCatchingLogged("MusicExpanded", "Failed to skip previous") {
-                            controller.transportControls.skipToPrevious()
-                        }
-                    } else notification.sendFirstAction(context, "previous", "prev", "rewind")
+                    if (notification?.mediaToken != null)
+                        repository.sendCommand(DotIslandCommand.SkipPrevious(notification.packageName))
+                    else notification.sendFirstAction(context, "previous", "prev", "rewind")
                 }
                 MediaButton(if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                     if (isPlaying) "Pause" else "Play", 40.dp) {
                     repository.resetTimer()
                     val play = !isPlaying
                     isPlaying = play
-                    if (controller != null) {
-                        runCatchingLogged("MusicExpanded", "Failed to play/pause") {
-                            if (play) controller.transportControls.play() else controller.transportControls.pause()
-                        }
-                    } else notification.sendFirstAction(context, "play", "pause", "resume")
+                    if (notification?.mediaToken != null)
+                        repository.sendCommand(DotIslandCommand.PlayPause(notification.packageName))
+                    else notification.sendFirstAction(context, "play", "pause", "resume")
                 }
                 MediaButton(Icons.Rounded.FastForward, "Next track", 36.dp) {
                     repository.resetTimer()
-                    if (controller != null) {
-                        runCatchingLogged("MusicExpanded", "Failed to skip next") {
-                            controller.transportControls.skipToNext()
-                        }
-                    } else notification.sendFirstAction(context, "next", "skip", "forward")
+                    if (notification?.mediaToken != null)
+                        repository.sendCommand(DotIslandCommand.SkipNext(notification.packageName))
+                    else notification.sendFirstAction(context, "next", "skip", "forward")
                 }
             }
             Box(Modifier.align(Alignment.CenterEnd)) {
@@ -229,24 +181,22 @@ private fun MediaButton(
 @Composable
 private fun MusicTimeline(
     notification: IslandNotification?,
-    playbackState: PlaybackState?,
     isPlaying: Boolean,
     durationMs: Long?,
     onSeek: (Long) -> Unit
 ) {
     var positionMs by remember(notification?.key, notification?.title) {
-        mutableStateOf(notification?.mediaPositionMs ?: playbackState?.position ?: 0L)
+        mutableStateOf(notification?.mediaPositionMs ?: 0L)
     }
     var lastSeekElapsed by remember(notification?.key, notification?.title) { mutableStateOf(0L) }
-    LaunchedEffect(playbackState, isPlaying, notification?.mediaPositionMs) {
+    LaunchedEffect(isPlaying, notification?.mediaPositionMs, notification?.mediaPositionUpdatedAtMs,
+        notification?.mediaPlaybackSpeed) {
         do {
             val now = SystemClock.elapsedRealtime()
             if (now - lastSeekElapsed > SEEK_SETTLE_MS) {
-                val base = playbackState?.position ?: notification?.mediaPositionMs ?: 0L
-                val elapsed = if (isPlaying && playbackState?.state == PlaybackState.STATE_PLAYING) {
-                    ((now - playbackState.lastPositionUpdateTime).coerceAtLeast(0) * playbackState.playbackSpeed).toLong()
-                } else 0L
-                positionMs = (base + elapsed).coerceAtLeast(0L)
+                positionMs = extrapolateMediaPosition(notification?.mediaPositionMs ?: 0L,
+                    notification?.mediaPositionUpdatedAtMs, now, isPlaying,
+                    notification?.mediaPlaybackSpeed ?: 0f, durationMs)
             }
             if (isPlaying) kotlinx.coroutines.delay(POSITION_POLL_INTERVAL_MS)
         } while (isPlaying)
@@ -289,3 +239,11 @@ private val MEDIA_SECONDARY = Color(0xFF8E8E93)
 private val MUSIC_CONTENT_INSET = 20.dp
 private const val POSITION_POLL_INTERVAL_MS = 100L
 private const val SEEK_SETTLE_MS = 1500L
+
+internal fun extrapolateMediaPosition(base: Long, updatedAt: Long?, now: Long,
+    playing: Boolean, speed: Float, duration: Long?): Long {
+    val elapsed = if (playing && updatedAt != null && updatedAt > 0 && speed.isFinite() && speed > 0f)
+        ((now - updatedAt).coerceAtLeast(0) * speed).toLong() else 0L
+    val position = (base.coerceAtLeast(0) + elapsed).coerceAtLeast(0)
+    return duration?.takeIf { it > 0 }?.let { position.coerceAtMost(it) } ?: position
+}

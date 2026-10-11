@@ -126,7 +126,7 @@ Replay checks:
 ## Verification
 
 ```bash
-./gradlew assembleDebug assembleDebugAndroidTest testDebugUnitTest lintDebug \
+./gradlew assembleDebug assembleUitest assembleUitestAndroidTest testUitestUnitTest lintDebug lintUitest \
   --no-parallel --max-workers=1
 ```
 
@@ -135,6 +135,12 @@ rejection, full-vs-indeterminate progress, empty-list defaulting semantics and
 Dodo compatibility. Building the Android test APK is not the same as running
 it. Generic third-party Live Updates still need app-by-app on-device verification;
 the real Dodo order has been observed on the A069.
+
+UI instrumentation defaults to `dev.qarasky.dotisland.uitest`, a separate debug
+app. Android force-stops an instrumentation target at start/end; never run these
+tests against the live personal app, since that can strand Android's accessibility
+binding. The isolated test app requires no overlay/notification grants for the
+Activity-hosted UI tests. Frame-time profiling remains separate from those tests.
 
 Relevant code under `app/src/main/java/dev/qarasky/dotisland/`:
 
